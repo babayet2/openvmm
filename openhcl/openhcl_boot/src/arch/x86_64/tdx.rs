@@ -14,6 +14,45 @@ use tdcall::Tdcall;
 use tdcall::TdcallInput;
 use tdcall::TdcallOutput;
 
+///////////////////////////
+// msr based logging
+
+use tdcall::tdcall_wrmsr;
+
+// HvSyntheticMsrReserved400000C1
+// 8 chars, null terminated unless 8 large
+const TDX_MSR_SPECIAL_DEBUG_PRINT: u32 = 0x400000C1;
+
+pub struct TdxWriter;
+
+impl core::fmt::Write for TdxWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let mut bytearray: [u8; 8] = [0; 8];
+        let mut s = s.as_bytes();
+
+        while !s.is_empty() {
+            let len = s.len().min(7);
+            let (data, rem) = s.split_at(len);
+            bytearray[..len].copy_from_slice(data);
+
+            // NUL terminate the c-style string.
+            bytearray[len] = 0;
+            tdcall_wrmsr(
+                &mut TdcallInstruction,
+                TDX_MSR_SPECIAL_DEBUG_PRINT,
+                u64::from_le_bytes(bytearray),
+            )
+            .unwrap();
+            s = rem;
+        }
+
+        Ok(())
+    }
+}
+
+// msr based logging
+/////////////////////////////
+
 /// Perform a tdcall instruction with the specified inputs.
 fn tdcall(input: TdcallInput) -> TdcallOutput {
     let rax: u64;

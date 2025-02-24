@@ -10,7 +10,6 @@
 
 #[cfg(target_arch = "x86_64")]
 use crate::arch::tdx::TdxIoAccess;
-use crate::host_params::shim_params::IsolationType;
 use crate::single_threaded::SingleThreaded;
 use core::cell::RefCell;
 use core::fmt;
@@ -18,6 +17,7 @@ use core::fmt::Write;
 #[cfg(target_arch = "x86_64")]
 use minimal_rt::arch::InstrIoAccess;
 use minimal_rt::arch::Serial;
+use minimal_rt::isolation::IsolationType;
 
 /// The logging type to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,12 +37,15 @@ enum Logger {
 
 impl Logger {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        match self {
+        #[cfg(target_arch = "x86_64")]
+        crate::arch::tdx::TdxWriter.write_str(s)
+
+        /*        match self {
             Logger::Serial(serial) => serial.write_str(s),
             #[cfg(target_arch = "x86_64")]
             Logger::TdxSerial(serial) => serial.write_str(s),
             Logger::None => Ok(()),
-        }
+        }*/
     }
 }
 

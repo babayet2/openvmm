@@ -3,7 +3,6 @@
 
 //! Parse partition info using the IGVM device tree parameter.
 
-use super::shim_params::IsolationType;
 use super::shim_params::ShimParams;
 use super::PartitionInfo;
 use crate::boot_logger::log;
@@ -29,6 +28,7 @@ use memory_range::flatten_ranges;
 use memory_range::subtract_ranges;
 use memory_range::walk_ranges;
 use memory_range::MemoryRange;
+use minimal_rt::isolation::IsolationType;
 
 /// Errors when reading the host device tree.
 #[derive(Debug)]

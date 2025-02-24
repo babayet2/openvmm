@@ -34,11 +34,12 @@ use boot_logger::LoggerType;
 use core::fmt::Write;
 use dt::write_dt;
 use dt::BootTimes;
-use host_params::shim_params::IsolationType;
 use host_params::shim_params::ShimParams;
 use host_params::PartitionInfo;
 use host_params::COMMAND_LINE_SIZE;
 use hvdef::Vtl;
+#[cfg(target_arch = "x86_64")]
+use loader_defs::linux::boot_params;
 use loader_defs::linux::setup_data;
 use loader_defs::linux::SETUP_DTB;
 use loader_defs::shim::ShimParamsRaw;
@@ -47,6 +48,7 @@ use memory_range::walk_ranges;
 use memory_range::MemoryRange;
 use memory_range::RangeWalkResult;
 use minimal_rt::enlightened_panic::enable_enlightened_panic;
+use minimal_rt::isolation::IsolationType;
 use sidecar::SidecarConfig;
 use sidecar_defs::SidecarOutput;
 use sidecar_defs::SidecarParams;
@@ -377,6 +379,8 @@ fn reserved_memory_regions(
 
 #[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
 mod x86_boot {
+    #[cfg(target_arch = "x86_64")]
+    use crate::arch::reserve_pages_for_multivp;
     use crate::host_params::PartitionInfo;
     use crate::single_threaded::off_stack;
     use crate::single_threaded::OffStackRef;
@@ -395,9 +399,10 @@ mod x86_boot {
     use memory_range::walk_ranges;
     use memory_range::MemoryRange;
     use memory_range::RangeWalkResult;
-    use zerocopy::FromZeros;
     use zerocopy::Immutable;
     use zerocopy::KnownLayout;
+    use zerocopy::FromZeroes;
+    use minimal_rt::isolation::IsolationType;
 
     #[repr(C)]
     #[derive(FromZeros, Immutable, KnownLayout)]
@@ -478,6 +483,8 @@ mod x86_boot {
         cmdline: &str,
         setup_data_head: *const setup_data,
         setup_data_tail: &mut &mut setup_data,
+        isolation_type: IsolationType,
+        page_tables: Option<MemoryRange>,
     ) -> OffStackRef<'static, PageAlign<boot_params>> {
         let mut boot_params_storage = off_stack!(PageAlign<boot_params>, zeroed());
         let boot_params = &mut boot_params_storage.0;
@@ -516,6 +523,19 @@ mod x86_boot {
         boot_params.ext_cmd_line_ptr = (cmd_line_addr >> 32) as u32;
 
         boot_params.hdr.setup_data = (setup_data_head as u64).into();
+
+        if !isolation_type.is_hardware_isolated() || page_tables.is_none() {
+            return boot_params_storage;
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        reserve_pages_for_multivp(
+            isolation_type,
+            page_tables.unwrap().start(),
+            page_tables.unwrap().end(),
+            boot_params,
+        );
+
         boot_params_storage
     }
 }
@@ -575,7 +595,7 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
     // status) do not work, and the `hvcall()` doesn't have
     // provisions for the hardware-isolated case.
     if !p.isolation_type.is_hardware_isolated() {
-        hvcall().initialize();
+        hvcall().initialize(None, None, p.isolation_type);
         if p.isolation_type == IsolationType::None {
             enable_enlightened_panic();
         }
@@ -589,6 +609,7 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
         boot_logger_init(p.isolation_type, typ);
         log!("openhcl_boot: early debugging enabled");
     }
+    boot_logger_init(p.isolation_type, LoggerType::Serial);
 
     let can_trust_host =
         p.isolation_type == IsolationType::None || static_options.confidential_debug;
@@ -651,11 +672,22 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
         panic!("no cpus");
     }
 
-    validate_vp_hw_ids(partition_info);
+    let hypercall_pages = setup_vtl2_memory(&p, partition_info);
 
-    setup_vtl2_vp(partition_info);
-    setup_vtl2_memory(&p, partition_info);
+    validate_vp_hw_ids(partition_info);
     verify_imported_regions_hash(&p);
+
+    // Hypercall init for non-isolated types was already done at the beginning of shim_main
+    // For Tdx-isolated partitions, 2MB-aligned hypercall page is required, which is obtained
+    // in setup_vtl2_memory so hvcall init must be invoked after it so hypercall input and
+    // output pages are setup on the new 2mb-page.
+    if let (Some(a), Some(b)) = (hypercall_pages.input, hypercall_pages.output) {
+        if p.isolation_type.is_hardware_isolated() {
+            hvcall().initialize(Some(a), Some(b), p.isolation_type);
+        }
+    }
+
+    setup_vtl2_vp(p.isolation_type, partition_info);
 
     let mut sidecar_params = off_stack!(PageAlign<SidecarParams>, zeroed());
     let mut sidecar_output = off_stack!(PageAlign<SidecarOutput>, zeroed());
@@ -718,6 +750,8 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
         &cmdline,
         setup_data_head,
         &mut setup_data_tail,
+        p.isolation_type,
+        p.page_tables,
     );
 
     // Compute the ending boot time. This has to be before writing to device
@@ -765,6 +799,7 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
         &cmdline,
         sidecar.as_ref(),
         boot_times,
+        p.isolation_type,
     )
     .unwrap();
 
@@ -776,7 +811,7 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "x86_64")] {
             // SAFETY: the parameter blob is trusted.
-            let kernel_entry: extern "C" fn(u64, &loader_defs::linux::boot_params) -> ! =
+            let kernel_entry: extern "C" fn(u64, &boot_params) -> ! =
                 unsafe { core::mem::transmute(p.kernel_entry_address) };
             kernel_entry(0, &boot_params.0)
         } else if #[cfg(target_arch = "aarch64")] {
@@ -869,10 +904,10 @@ mod test {
     use super::x86_boot::build_e820_map;
     use super::x86_boot::E820Ext;
     use crate::dt::write_dt;
-    use crate::host_params::shim_params::IsolationType;
     use crate::host_params::PartitionInfo;
     use crate::host_params::MAX_CPU_COUNT;
     use crate::reserved_memory_regions;
+    use crate::IsolationType;
     use crate::ReservedMemoryType;
     use arrayvec::ArrayString;
     use arrayvec::ArrayVec;
@@ -888,7 +923,8 @@ mod test {
     use memory_range::walk_ranges;
     use memory_range::MemoryRange;
     use memory_range::RangeWalkResult;
-    use zerocopy::FromZeros;
+    use minimal_rt::isolation::IsolationType;
+    use zerocopy::FromZeroes;
 
     const HIGH_MMIO_GAP_END: u64 = 0x1000000000; //  64 GiB
     const VMBUS_MMIO_GAP_SIZE: u64 = 0x10000000; // 256 MiB
@@ -956,6 +992,7 @@ mod test {
             &ArrayString::from("test").unwrap_or_default(),
             None,
             None,
+            IsolationType::None,
         )
         .unwrap();
     }
@@ -1029,6 +1066,7 @@ mod test {
             &ArrayString::from("test").unwrap_or_default(),
             None,
             None,
+            IsolationType::None,
         )
         .unwrap();
 
@@ -1057,6 +1095,7 @@ mod test {
             &ArrayString::from("test").unwrap_or_default(),
             None,
             None,
+            IsolationType::None,
         )
         .unwrap();
 

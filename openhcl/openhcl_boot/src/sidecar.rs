@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 use crate::boot_logger::log;
-use crate::host_params::shim_params::IsolationType;
 use crate::host_params::shim_params::ShimParams;
 use crate::host_params::PartitionInfo;
 use crate::host_params::MAX_CPU_COUNT;
@@ -10,6 +9,7 @@ use crate::host_params::MAX_NUMA_NODES;
 use crate::single_threaded::off_stack;
 use arrayvec::ArrayVec;
 use memory_range::MemoryRange;
+use minimal_rt::isolation::IsolationType;
 use sidecar_defs::SidecarNodeOutput;
 use sidecar_defs::SidecarNodeParams;
 use sidecar_defs::SidecarOutput;

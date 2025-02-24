@@ -4052,7 +4052,8 @@ dependencies = [
  "cfg-if",
  "hvdef",
  "minimal_rt_build",
- "zerocopy 0.8.14",
+ "tdcall",
+ "zerocopy",
 ]
 
 [[package]]

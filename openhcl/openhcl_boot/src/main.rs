@@ -401,7 +401,7 @@ mod x86_boot {
     use memory_range::RangeWalkResult;
     use zerocopy::Immutable;
     use zerocopy::KnownLayout;
-    use zerocopy::FromZeroes;
+    use zerocopy::FromZeros;
     use minimal_rt::isolation::IsolationType;
 
     #[repr(C)]
@@ -924,7 +924,7 @@ mod test {
     use memory_range::MemoryRange;
     use memory_range::RangeWalkResult;
     use minimal_rt::isolation::IsolationType;
-    use zerocopy::FromZeroes;
+    use zerocopy::FromZeros;
 
     const HIGH_MMIO_GAP_END: u64 = 0x1000000000; //  64 GiB
     const VMBUS_MMIO_GAP_SIZE: u64 = 0x10000000; // 256 MiB

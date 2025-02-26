@@ -4053,7 +4053,7 @@ dependencies = [
  "hvdef",
  "minimal_rt_build",
  "tdcall",
- "zerocopy",
+ "zerocopy 0.8.14",
 ]
 
 [[package]]

@@ -16,7 +16,7 @@ use hvdef::HV_PAGE_SIZE;
 use memory_range::MemoryRange;
 
 use minimal_rt::isolation::IsolationType;
-use zerocopy::AsBytes;
+use minimal_rt::arch::hypercall::invoke_hypercall;
 use zerocopy::FromBytes;
 use zerocopy::IntoBytes;
 
@@ -206,7 +206,7 @@ impl HvCall {
             // HvInputVtl value.
             target_vtl: Vtl::Vtl2.into(),
             reserved: [0; 3],
-            vp_vtl_context: zerocopy::FromZeroes::new_zeroed(),
+            vp_vtl_context: zerocopy::FromZeros::new_zeroed(),
         };
 
         assert!(self.initialized);
@@ -231,7 +231,7 @@ impl HvCall {
             target_vtl: Vtl::Vtl2.into(),
             rsvd0: 0,
             rsvd1: 0,
-            vp_context: zerocopy::FromZeroes::new_zeroed(),
+            vp_context: zerocopy::FromZeros::new_zeroed(),
         };
 
         assert!(self.initialized);

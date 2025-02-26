@@ -17,47 +17,6 @@ use zerocopy::Immutable;
 use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
 
-/// Fields in the trampoline context must be loaded from memory by the
-/// trampoline code.
-///
-/// Note that this trampoline context must also be used for bringing up APs, as
-/// the code placed in the reset vector will use this format to figure out what
-/// register state to load.
-#[repr(C)]
-#[derive(Debug, Default, Clone, Copy, IntoBytes, Immutable, KnownLayout)]
-pub struct TdxTrampolineContext {
-    start_gate: u32,
-
-    data_selector: u16,
-    static_gdt_limit: u16,
-    static_gdt_base: u32,
-
-    task_selector: u16,
-    idtr_limit: u16,
-    idtr_base: u64,
-
-    initial_rip: u64,
-    code_selector: u16,
-    padding_2: [u16; 2],
-    gdtr_limit: u16,
-    gdtr_base: u64,
-
-    rsp: u64,
-    rbp: u64,
-    rsi: u64,
-    r8: u64,
-    r9: u64,
-    r10: u64,
-    r11: u64,
-    cr0: u64,
-    cr3: u64,
-    cr4: u64,
-    transition_cr3: u32,
-    padding_3: u32,
-
-    static_gdt: [u8; 16],
-}
-
 /// Represents a hardware context for TDX. This contains both the sets of
 /// initial registers and registers set by the trampoline code.
 #[derive(Debug)]

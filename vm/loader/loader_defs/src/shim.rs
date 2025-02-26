@@ -133,7 +133,7 @@ impl MemoryVtlType {
 /// the code placed in the reset vector will use this format to figure out what
 /// register state to load.
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, AsBytes)]
+#[derive(Debug, Default, Clone, Copy, IntoBytes, Immutable)]
 pub struct TdxTrampolineContext {
     /// Mailbox command
     pub mailbox_command: u16,

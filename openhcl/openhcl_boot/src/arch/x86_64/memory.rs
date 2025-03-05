@@ -14,7 +14,7 @@ use loader_defs::linux::e820entry;
 use loader_defs::linux::E820_RESERVED;
 use loader_defs::shim::TdxTrampolineContext;
 use memory_range::MemoryRange;
-use minimal_rt::isolation::IsolationType;
+use crate::isolation::IsolationType;
 use sha2::Digest;
 use sha2::Sha384;
 use x86defs::tdx::RESET_VECTOR_PAGE;

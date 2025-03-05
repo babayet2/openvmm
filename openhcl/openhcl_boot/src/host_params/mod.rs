@@ -13,7 +13,7 @@ use host_fdt_parser::MemoryEntry;
 use host_fdt_parser::VmbusInfo;
 use memory_range::subtract_ranges;
 use memory_range::MemoryRange;
-use minimal_rt::isolation::IsolationType;
+use super::isolation::IsolationType;
 
 mod dt;
 mod mmio;

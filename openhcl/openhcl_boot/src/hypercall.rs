@@ -11,12 +11,14 @@ use core::mem::size_of;
 use hvdef::hypercall::HvInputVtl;
 #[cfg(target_arch = "x86_64")]
 use hvdef::hypercall::StartVirtualProcessorX64;
+#[cfg(target_arch = "x86_64")]
+use crate::arch::tdx::invoke_tdcall_hypercall;
 use hvdef::Vtl;
 use hvdef::HV_PAGE_SIZE;
 use memory_range::MemoryRange;
 
-use minimal_rt::isolation::IsolationType;
 use minimal_rt::arch::hypercall::invoke_hypercall;
+use crate::isolation::IsolationType;
 use zerocopy::FromBytes;
 use zerocopy::IntoBytes;
 
@@ -186,13 +188,23 @@ impl HvCall {
             .with_rep_count(rep_count.unwrap_or_default());
 
         // SAFETY: Invoking hypercall per TLFS spec
-        unsafe {
-            invoke_hypercall(
-                self.isolation_type,
-                control,
-                self.input_page,
-                self.output_page,
-            )
+        // TODO(babayet2): tdx hypercall
+        // if isolation_type == IsolationType::Tdx {
+//            output = invoke_tdcall(control, input_gpa_or_fast1, output_gpa_or_fast2);
+//        } else {
+        match self.isolation_type {
+          IsolationType::Tdx =>  {
+                invoke_tdcall_hypercall(control, self.input_page, self.output_page).into()
+          }
+          _ => {
+            unsafe {
+                invoke_hypercall(
+                    control,
+                    self.input_page,
+                    self.output_page,
+                )
+            }
+          }
         }
     }
 

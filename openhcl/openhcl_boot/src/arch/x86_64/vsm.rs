@@ -4,7 +4,7 @@
 //! Arch-specific VSM details.
 
 use loader_defs::shim::SupportedIsolationType;
-use minimal_rt::isolation::IsolationType;
+use crate::isolation::IsolationType;
 
 pub fn get_isolation_type(supported_isolation_type: SupportedIsolationType) -> IsolationType {
     match supported_isolation_type {

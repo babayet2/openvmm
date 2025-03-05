@@ -9,7 +9,7 @@ use loader_defs::paravisor::ImportedRegionDescriptor;
 use loader_defs::paravisor::ParavisorCommandLine;
 use loader_defs::shim::ShimParamsRaw;
 use memory_range::MemoryRange;
-use minimal_rt::isolation::IsolationType;
+use crate::isolation::IsolationType;
 
 /// Iterator for the list of accepted regions in the IGVM VTL 2 config region.
 /// Does not increment past the first with page count 0.

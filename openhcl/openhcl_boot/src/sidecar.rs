@@ -9,7 +9,7 @@ use crate::host_params::MAX_NUMA_NODES;
 use crate::single_threaded::off_stack;
 use arrayvec::ArrayVec;
 use memory_range::MemoryRange;
-use minimal_rt::isolation::IsolationType;
+use crate::isolation::IsolationType;
 use sidecar_defs::SidecarNodeOutput;
 use sidecar_defs::SidecarNodeParams;
 use sidecar_defs::SidecarOutput;

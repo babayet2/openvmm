@@ -25,7 +25,7 @@ use loader_defs::shim::MemoryVtlType;
 use memory_range::walk_ranges;
 use memory_range::MemoryRange;
 use memory_range::RangeWalkResult;
-use minimal_rt::isolation::IsolationType;
+use crate::isolation::IsolationType;
 #[cfg(target_arch = "x86_64")]
 use x86defs::tdx::RESET_VECTOR_PAGE;
 

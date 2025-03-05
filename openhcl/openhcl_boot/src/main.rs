@@ -15,6 +15,7 @@ mod cmdline;
 mod dt;
 mod host_params;
 mod hypercall;
+mod isolation;
 mod rt;
 mod sidecar;
 mod single_threaded;
@@ -48,7 +49,7 @@ use memory_range::walk_ranges;
 use memory_range::MemoryRange;
 use memory_range::RangeWalkResult;
 use minimal_rt::enlightened_panic::enable_enlightened_panic;
-use minimal_rt::isolation::IsolationType;
+use crate::isolation::IsolationType;
 use sidecar::SidecarConfig;
 use sidecar_defs::SidecarOutput;
 use sidecar_defs::SidecarParams;
@@ -402,7 +403,7 @@ mod x86_boot {
     use zerocopy::Immutable;
     use zerocopy::KnownLayout;
     use zerocopy::FromZeros;
-    use minimal_rt::isolation::IsolationType;
+    use crate::isolation::IsolationType;
 
     #[repr(C)]
     #[derive(FromZeros, Immutable, KnownLayout)]
@@ -923,7 +924,7 @@ mod test {
     use memory_range::walk_ranges;
     use memory_range::MemoryRange;
     use memory_range::RangeWalkResult;
-    use minimal_rt::isolation::IsolationType;
+    use crate::isolation::IsolationType;
     use zerocopy::FromZeros;
 
     const HIGH_MMIO_GAP_END: u64 = 0x1000000000; //  64 GiB

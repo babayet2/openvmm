@@ -13,45 +13,7 @@ use tdcall::AcceptPagesError;
 use tdcall::Tdcall;
 use tdcall::TdcallInput;
 use tdcall::TdcallOutput;
-
-///////////////////////////
-// msr based logging
-
-use tdcall::tdcall_wrmsr;
-
-// HvSyntheticMsrReserved400000C1
-// 8 chars, null terminated unless 8 large
-const TDX_MSR_SPECIAL_DEBUG_PRINT: u32 = 0x400000C1;
-
-pub struct TdxWriter;
-
-impl core::fmt::Write for TdxWriter {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let mut bytearray: [u8; 8] = [0; 8];
-        let mut s = s.as_bytes();
-
-        while !s.is_empty() {
-            let len = s.len().min(7);
-            let (data, rem) = s.split_at(len);
-            bytearray[..len].copy_from_slice(data);
-
-            // NUL terminate the c-style string.
-            bytearray[len] = 0;
-            tdcall_wrmsr(
-                &mut TdcallInstruction,
-                TDX_MSR_SPECIAL_DEBUG_PRINT,
-                u64::from_le_bytes(bytearray),
-            )
-            .unwrap();
-            s = rem;
-        }
-
-        Ok(())
-    }
-}
-
-// msr based logging
-/////////////////////////////
+use tdcall::tdcall_hypercall;
 
 /// Perform a tdcall instruction with the specified inputs.
 fn tdcall(input: TdcallInput) -> TdcallOutput {
@@ -142,6 +104,13 @@ fn read_msr_tdcall(msr_index: u32) -> u64 {
     let mut msr_value: u64 = 0;
     tdcall_rdmsr(&mut TdcallInstruction, msr_index, &mut msr_value).unwrap();
     msr_value
+}
+
+//TODO(babayet2) fix status code
+pub fn invoke_tdcall_hypercall(control: hvdef::hypercall::Control, input: u64, output: u64) -> u64 {
+  let status: u64 = 0;
+  let _ = tdcall_hypercall(&mut TdcallInstruction, control, input, output);
+  status
 }
 
 /// Global variable to store tsc frequency.

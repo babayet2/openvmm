@@ -6,7 +6,7 @@ use crate::host_params::shim_params::ShimParams;
 use crate::host_params::PartitionInfo;
 use crate::host_params::MAX_CPU_COUNT;
 use crate::host_params::MAX_NUMA_NODES;
-use crate::isolation::IsolationType;
+use crate::host_params::shim_params::IsolationType;
 use crate::single_threaded::off_stack;
 use arrayvec::ArrayVec;
 use memory_range::MemoryRange;

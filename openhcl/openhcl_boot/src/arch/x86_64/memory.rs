@@ -8,7 +8,7 @@ use super::address_space::LocalMap;
 use crate::host_params::PartitionInfo;
 use crate::hypercall::hvcall;
 use crate::hypercall::HypercallPages;
-use crate::isolation::IsolationType;
+use crate::host_params::shim_params::IsolationType;
 use crate::ShimParams;
 use loader_defs::linux::boot_params;
 use loader_defs::linux::e820entry;

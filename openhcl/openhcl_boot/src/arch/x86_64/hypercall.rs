@@ -4,7 +4,7 @@
 use crate::arch::tdx::TdcallInstruction;
 use crate::arch::x86_64::address_space::map_with_private_bit;
 use crate::arch::x86_64::address_space::map_with_shared_bit;
-use crate::isolation::IsolationType;
+use crate::host_params::shim_params::IsolationType;
 use crate::MemoryRange;
 use core::arch::asm;
 use core::ptr::addr_of;

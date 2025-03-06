@@ -15,7 +15,6 @@ mod cmdline;
 mod dt;
 mod host_params;
 mod hypercall;
-mod isolation;
 mod rt;
 mod sidecar;
 mod single_threaded;
@@ -28,7 +27,7 @@ use crate::arch::verify_imported_regions_hash;
 use crate::boot_logger::boot_logger_init;
 use crate::boot_logger::log;
 use crate::hypercall::hvcall;
-use crate::isolation::IsolationType;
+use crate::host_params::shim_params::IsolationType;
 use crate::single_threaded::off_stack;
 use arrayvec::ArrayString;
 use arrayvec::ArrayVec;
@@ -383,7 +382,7 @@ mod x86_boot {
     #[cfg(target_arch = "x86_64")]
     use crate::arch::reserve_pages_for_multivp;
     use crate::host_params::PartitionInfo;
-    use crate::isolation::IsolationType;
+    use crate::host_params::shim_params::IsolationType;
     use crate::single_threaded::off_stack;
     use crate::single_threaded::OffStackRef;
     use crate::zeroed;
@@ -907,7 +906,7 @@ mod test {
     use crate::dt::write_dt;
     use crate::host_params::PartitionInfo;
     use crate::host_params::MAX_CPU_COUNT;
-    use crate::isolation::IsolationType;
+    use crate::host_params::shim_params::IsolationType;
     use crate::reserved_memory_regions;
     use crate::IsolationType;
     use crate::ReservedMemoryType;

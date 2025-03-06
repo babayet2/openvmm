@@ -17,7 +17,7 @@ use hvdef::Vtl;
 use hvdef::HV_PAGE_SIZE;
 use memory_range::MemoryRange;
 
-use crate::isolation::IsolationType;
+use crate::host_params::shim_params::IsolationType;
 use minimal_rt::arch::hypercall::invoke_hypercall;
 use zerocopy::FromBytes;
 use zerocopy::IntoBytes;

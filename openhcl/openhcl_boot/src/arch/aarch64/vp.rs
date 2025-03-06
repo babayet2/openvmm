@@ -5,7 +5,7 @@
 
 use crate::hypercall::hvcall;
 use crate::PartitionInfo;
-use minimal_rt::isolation::IsolationType;
+crate::host_params::shim_params::IsolationType;
 
 pub fn setup_vtl2_vp(_isolation_type: IsolationType, partition_info: &PartitionInfo) {
     // VTL2 kernel boot processor will try to remote read the GICR before AP's are

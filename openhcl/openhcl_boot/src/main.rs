@@ -28,6 +28,7 @@ use crate::arch::verify_imported_regions_hash;
 use crate::boot_logger::boot_logger_init;
 use crate::boot_logger::log;
 use crate::hypercall::hvcall;
+use crate::isolation::IsolationType;
 use crate::single_threaded::off_stack;
 use arrayvec::ArrayString;
 use arrayvec::ArrayVec;
@@ -49,7 +50,6 @@ use memory_range::walk_ranges;
 use memory_range::MemoryRange;
 use memory_range::RangeWalkResult;
 use minimal_rt::enlightened_panic::enable_enlightened_panic;
-use crate::isolation::IsolationType;
 use sidecar::SidecarConfig;
 use sidecar_defs::SidecarOutput;
 use sidecar_defs::SidecarParams;
@@ -383,6 +383,7 @@ mod x86_boot {
     #[cfg(target_arch = "x86_64")]
     use crate::arch::reserve_pages_for_multivp;
     use crate::host_params::PartitionInfo;
+    use crate::isolation::IsolationType;
     use crate::single_threaded::off_stack;
     use crate::single_threaded::OffStackRef;
     use crate::zeroed;
@@ -400,10 +401,9 @@ mod x86_boot {
     use memory_range::walk_ranges;
     use memory_range::MemoryRange;
     use memory_range::RangeWalkResult;
+    use zerocopy::FromZeros;
     use zerocopy::Immutable;
     use zerocopy::KnownLayout;
-    use zerocopy::FromZeros;
-    use crate::isolation::IsolationType;
 
     #[repr(C)]
     #[derive(FromZeros, Immutable, KnownLayout)]
@@ -907,6 +907,7 @@ mod test {
     use crate::dt::write_dt;
     use crate::host_params::PartitionInfo;
     use crate::host_params::MAX_CPU_COUNT;
+    use crate::isolation::IsolationType;
     use crate::reserved_memory_regions;
     use crate::IsolationType;
     use crate::ReservedMemoryType;
@@ -924,7 +925,6 @@ mod test {
     use memory_range::walk_ranges;
     use memory_range::MemoryRange;
     use memory_range::RangeWalkResult;
-    use crate::isolation::IsolationType;
     use zerocopy::FromZeros;
 
     const HIGH_MMIO_GAP_END: u64 = 0x1000000000; //  64 GiB

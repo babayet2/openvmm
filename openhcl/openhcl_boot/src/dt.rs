@@ -6,6 +6,7 @@
 
 use crate::host_params::PartitionInfo;
 use crate::host_params::COMMAND_LINE_SIZE;
+use crate::isolation::IsolationType;
 use crate::sidecar::SidecarConfig;
 use crate::single_threaded::off_stack;
 use crate::ReservedMemoryType;
@@ -25,7 +26,6 @@ use loader_defs::shim::MemoryVtlType;
 use memory_range::walk_ranges;
 use memory_range::MemoryRange;
 use memory_range::RangeWalkResult;
-use crate::isolation::IsolationType;
 #[cfg(target_arch = "x86_64")]
 use x86defs::tdx::RESET_VECTOR_PAGE;
 

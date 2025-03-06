@@ -13,10 +13,10 @@ pub mod tdx;
 mod vp;
 mod vsm;
 
+use crate::isolation::IsolationType;
 pub use memory::reserve_pages_for_multivp;
 pub use memory::setup_vtl2_memory;
 pub use memory::verify_imported_regions_hash;
-use crate::isolation::IsolationType;
 use safe_intrinsics::cpuid;
 pub use vp::setup_vtl2_vp;
 pub use vsm::get_isolation_type;

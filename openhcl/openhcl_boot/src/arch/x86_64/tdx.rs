@@ -7,13 +7,13 @@ use crate::single_threaded::SingleThreaded;
 use core::arch::asm;
 use core::cell::Cell;
 use memory_range::MemoryRange;
+use tdcall::tdcall_hypercall;
 use tdcall::tdcall_map_gpa;
 use tdcall::tdcall_rdmsr;
 use tdcall::AcceptPagesError;
 use tdcall::Tdcall;
 use tdcall::TdcallInput;
 use tdcall::TdcallOutput;
-use tdcall::tdcall_hypercall;
 
 /// Perform a tdcall instruction with the specified inputs.
 fn tdcall(input: TdcallInput) -> TdcallOutput {
@@ -108,9 +108,9 @@ fn read_msr_tdcall(msr_index: u32) -> u64 {
 
 //TODO(babayet2) fix status code
 pub fn invoke_tdcall_hypercall(control: hvdef::hypercall::Control, input: u64, output: u64) -> u64 {
-  let status: u64 = 0;
-  let _ = tdcall_hypercall(&mut TdcallInstruction, control, input, output);
-  status
+    let status: u64 = 0;
+    let _ = tdcall_hypercall(&mut TdcallInstruction, control, input, output);
+    status
 }
 
 /// Global variable to store tsc frequency.

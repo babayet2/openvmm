@@ -3,6 +3,8 @@
 
 //! Hypercall infrastructure.
 
+#[cfg(target_arch = "x86_64")]
+use crate::arch::tdx::invoke_tdcall_hypercall;
 use crate::single_threaded::SingleThreaded;
 use arrayvec::ArrayVec;
 use core::cell::RefCell;
@@ -11,14 +13,12 @@ use core::mem::size_of;
 use hvdef::hypercall::HvInputVtl;
 #[cfg(target_arch = "x86_64")]
 use hvdef::hypercall::StartVirtualProcessorX64;
-#[cfg(target_arch = "x86_64")]
-use crate::arch::tdx::invoke_tdcall_hypercall;
 use hvdef::Vtl;
 use hvdef::HV_PAGE_SIZE;
 use memory_range::MemoryRange;
 
-use minimal_rt::arch::hypercall::invoke_hypercall;
 use crate::isolation::IsolationType;
+use minimal_rt::arch::hypercall::invoke_hypercall;
 use zerocopy::FromBytes;
 use zerocopy::IntoBytes;
 
@@ -190,21 +190,13 @@ impl HvCall {
         // SAFETY: Invoking hypercall per TLFS spec
         // TODO(babayet2): tdx hypercall
         // if isolation_type == IsolationType::Tdx {
-//            output = invoke_tdcall(control, input_gpa_or_fast1, output_gpa_or_fast2);
-//        } else {
+        //            output = invoke_tdcall(control, input_gpa_or_fast1, output_gpa_or_fast2);
+        //        } else {
         match self.isolation_type {
-          IsolationType::Tdx =>  {
+            IsolationType::Tdx => {
                 invoke_tdcall_hypercall(control, self.input_page, self.output_page).into()
-          }
-          _ => {
-            unsafe {
-                invoke_hypercall(
-                    control,
-                    self.input_page,
-                    self.output_page,
-                )
             }
-          }
+            _ => unsafe { invoke_hypercall(control, self.input_page, self.output_page) },
         }
     }
 

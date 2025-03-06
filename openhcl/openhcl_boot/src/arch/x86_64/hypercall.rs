@@ -4,6 +4,7 @@
 use crate::arch::tdx::TdcallInstruction;
 use crate::arch::x86_64::address_space::map_with_private_bit;
 use crate::arch::x86_64::address_space::map_with_shared_bit;
+use crate::isolation::IsolationType;
 use crate::MemoryRange;
 use core::arch::asm;
 use core::ptr::addr_of;
@@ -11,7 +12,6 @@ use hvdef::HV_PAGE_SIZE;
 use minimal_rt::arch::hypercall::HYPERCALL_PAGE;
 use minimal_rt::arch::msr::read_msr;
 use minimal_rt::arch::msr::write_msr;
-use crate::isolation::IsolationType;
 use tdcall::tdcall_wrmsr;
 use x86defs::tdx::TDX_SHARED_GPA_BOUNDARY_ADDRESS_BIT;
 
@@ -75,7 +75,8 @@ pub(crate) fn initialize(guest_os_id: u64, input_page: Option<u64>, isolation: I
             }
 
             // Enable host visibility for hypercall page
-            let input_page_range = MemoryRange::new(input_page.unwrap()..input_page.unwrap() + TWO_MB);
+            let input_page_range =
+                MemoryRange::new(input_page.unwrap()..input_page.unwrap() + TWO_MB);
             super::tdx::change_page_visibility(input_page_range, true);
         }
 
@@ -101,9 +102,11 @@ pub(crate) fn uninitialize(input_page: Option<u64>, isolation: IsolationType) {
             }
 
             // Disable host visibility for hypercall page
-            let input_page_range = MemoryRange::new(input_page.unwrap()..input_page.unwrap() + TWO_MB);
+            let input_page_range =
+                MemoryRange::new(input_page.unwrap()..input_page.unwrap() + TWO_MB);
             super::tdx::change_page_visibility(input_page_range, false);
-            super::tdx::accept_pages(input_page_range).expect("accepting vtl 2 memory must not fail");
+            super::tdx::accept_pages(input_page_range)
+                .expect("accepting vtl 2 memory must not fail");
 
             // SAFETY: Flush TLB
             unsafe {

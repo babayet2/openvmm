@@ -12,6 +12,7 @@ use crate::host_params::MAX_ENTROPY_SIZE;
 use crate::host_params::MAX_NUMA_NODES;
 use crate::host_params::MAX_PARTITION_RAM_RANGES;
 use crate::host_params::MAX_VTL2_USED_RANGES;
+use crate::isolation::IsolationType;
 use crate::single_threaded::off_stack;
 use crate::single_threaded::OffStackRef;
 use arrayvec::ArrayVec;
@@ -28,7 +29,6 @@ use memory_range::flatten_ranges;
 use memory_range::subtract_ranges;
 use memory_range::walk_ranges;
 use memory_range::MemoryRange;
-use crate::isolation::IsolationType;
 
 /// Errors when reading the host device tree.
 #[derive(Debug)]

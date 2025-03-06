@@ -4,12 +4,12 @@
 //! Parameters that are fixed at IGVM build time by the underhill loader.
 
 use crate::arch::get_isolation_type;
+use crate::isolation::IsolationType;
 use core::slice;
 use loader_defs::paravisor::ImportedRegionDescriptor;
 use loader_defs::paravisor::ParavisorCommandLine;
 use loader_defs::shim::ShimParamsRaw;
 use memory_range::MemoryRange;
-use crate::isolation::IsolationType;
 
 /// Iterator for the list of accepted regions in the IGVM VTL 2 config region.
 /// Does not increment past the first with page count 0.

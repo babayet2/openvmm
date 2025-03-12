@@ -106,11 +106,17 @@ fn read_msr_tdcall(msr_index: u32) -> u64 {
     msr_value
 }
 
-//TODO(babayet2) fix status code
-pub fn invoke_tdcall_hypercall(control: hvdef::hypercall::Control, input: u64, output: u64) -> u64 {
-    let status: u64 = 0;
-    let _ = tdcall_hypercall(&mut TdcallInstruction, control, input, output);
-    status
+pub fn invoke_tdcall_hypercall(
+    control: hvdef::hypercall::Control,
+    input_page: u64,
+    output_page: u64,
+) -> hvdef::hypercall::HypercallOutput {
+    let result = tdcall_hypercall(&mut TdcallInstruction, control, input_page, output_page);
+    match result {
+        Ok(()) => 0.into(),
+        //TODO(babayet2) can TdVmCallR10 result be converted into HypercallOutput? are they 1:1
+        Err(val) => 0.into(),
+    }
 }
 
 /// Global variable to store tsc frequency.

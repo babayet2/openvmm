@@ -4,9 +4,9 @@
 //! Module used to write the device tree used by the OpenHCL kernel and
 //! usermode.
 
+use crate::host_params::shim_params::IsolationType;
 use crate::host_params::PartitionInfo;
 use crate::host_params::COMMAND_LINE_SIZE;
-use crate::host_params::shim_params::IsolationType;
 use crate::sidecar::SidecarConfig;
 use crate::single_threaded::off_stack;
 use crate::ReservedMemoryType;

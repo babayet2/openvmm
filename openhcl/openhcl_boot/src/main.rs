@@ -26,8 +26,8 @@ use crate::arch::tdx::get_tdx_tsc_reftime;
 use crate::arch::verify_imported_regions_hash;
 use crate::boot_logger::boot_logger_init;
 use crate::boot_logger::log;
-use crate::hypercall::hvcall;
 use crate::host_params::shim_params::IsolationType;
+use crate::hypercall::hvcall;
 use crate::single_threaded::off_stack;
 use arrayvec::ArrayString;
 use arrayvec::ArrayVec;
@@ -381,8 +381,8 @@ fn reserved_memory_regions(
 mod x86_boot {
     #[cfg(target_arch = "x86_64")]
     use crate::arch::reserve_pages_for_multivp;
-    use crate::host_params::PartitionInfo;
     use crate::host_params::shim_params::IsolationType;
+    use crate::host_params::PartitionInfo;
     use crate::single_threaded::off_stack;
     use crate::single_threaded::OffStackRef;
     use crate::zeroed;
@@ -587,18 +587,15 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
     // Thus the fast hypercalls will fail as the the Guest ID has
     // to be set first hence initialize hypercall support
     // explicitly.
-    //
-    // In the hardware-isolated case, the hypervisor cannot
-    // access the guest registers so the fast hypercalls and
-    // any other methods of passing data to/from the hypervisor
-    // via the CPU registers (e.g. CPUID, hypercall call code or
-    // status) do not work, and the `hvcall()` doesn't have
-    // provisions for the hardware-isolated case.
+
     if !p.isolation_type.is_hardware_isolated() {
-        hvcall().initialize(None, None, p.isolation_type);
         if p.isolation_type == IsolationType::None {
             enable_enlightened_panic();
         }
+    }
+
+    if !(p.isolation_type == IsolationType::Snp) {
+        hvcall().initialize(p.isolation_type);
     }
 
     // Enable early log output if requested in the static command line.
@@ -672,20 +669,10 @@ fn shim_main(shim_params_raw_offset: isize) -> ! {
         panic!("no cpus");
     }
 
-    let hypercall_pages = setup_vtl2_memory(&p, partition_info);
+    setup_vtl2_memory(&p, partition_info);
 
     validate_vp_hw_ids(partition_info);
     verify_imported_regions_hash(&p);
-
-    // Hypercall init for non-isolated types was already done at the beginning of shim_main
-    // For Tdx-isolated partitions, 2MB-aligned hypercall page is required, which is obtained
-    // in setup_vtl2_memory so hvcall init must be invoked after it so hypercall input and
-    // output pages are setup on the new 2mb-page.
-    if let (Some(a), Some(b)) = (hypercall_pages.input, hypercall_pages.output) {
-        if p.isolation_type.is_hardware_isolated() {
-            hvcall().initialize(Some(a), Some(b), p.isolation_type);
-        }
-    }
 
     setup_vtl2_vp(p.isolation_type, partition_info);
 
@@ -904,9 +891,9 @@ mod test {
     use super::x86_boot::build_e820_map;
     use super::x86_boot::E820Ext;
     use crate::dt::write_dt;
+    use crate::host_params::shim_params::IsolationType;
     use crate::host_params::PartitionInfo;
     use crate::host_params::MAX_CPU_COUNT;
-    use crate::host_params::shim_params::IsolationType;
     use crate::reserved_memory_regions;
     use crate::IsolationType;
     use crate::ReservedMemoryType;

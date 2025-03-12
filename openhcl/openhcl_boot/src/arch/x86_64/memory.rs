@@ -5,10 +5,9 @@
 
 use super::address_space::init_local_map;
 use super::address_space::LocalMap;
+use crate::host_params::shim_params::IsolationType;
 use crate::host_params::PartitionInfo;
 use crate::hypercall::hvcall;
-use crate::hypercall::HypercallPages;
-use crate::host_params::shim_params::IsolationType;
 use crate::ShimParams;
 use loader_defs::linux::boot_params;
 use loader_defs::linux::e820entry;
@@ -24,10 +23,7 @@ use x86defs::X64_LARGE_PAGE_SIZE;
 /// On isolated systems, transitions all VTL2 RAM to be private and accepted, with the appropriate
 /// VTL permissions applied.
 /// For TDX-isolated partitions, this function returns input and outpute pages to be used for hypercalls  
-pub fn setup_vtl2_memory(
-    shim_params: &ShimParams,
-    partition_info: &PartitionInfo,
-) -> HypercallPages {
+pub fn setup_vtl2_memory(shim_params: &ShimParams, partition_info: &PartitionInfo) {
     // Only if the partition is VBS-isolated, accept memory and apply vtl 2 protections here.
     // Non-isolated partitions can undergo servicing, and additional information
     // would be needed to determine whether vtl 2 protections should be applied
@@ -35,10 +31,7 @@ pub fn setup_vtl2_memory(
     // TODO: if applying vtl 2 protections for non-isolated VMs moves to the
     // boot shim, apply them here.
     if let IsolationType::None = shim_params.isolation_type {
-        return HypercallPages {
-            input: None,
-            output: None,
-        };
+        return;
     }
 
     if let IsolationType::Vbs = shim_params.isolation_type {
@@ -130,19 +123,6 @@ pub fn setup_vtl2_memory(
         if !already_accepted {
             accept_pending_vtl2_memory(shim_params, &mut local_map, ram_buffer, imported_range);
         }
-    }
-
-    // For TDVMCALL based hypercalls, take the first 2 MB region from ram_buffer for hypercall pages
-    if shim_params.isolation_type == IsolationType::Tdx {
-        let input_page = ram_buffer.as_mut_ptr() as u64;
-        return HypercallPages {
-            input: Some(input_page),
-            output: Some(input_page + 4096),
-        };
-    }
-    HypercallPages {
-        input: None,
-        output: None,
     }
 }
 

@@ -3,9 +3,9 @@
 
 //! Setting up VTL2 VPs
 
+use crate::host_params::shim_params::IsolationType;
 use crate::host_params::PartitionInfo;
 use crate::hvcall;
-use crate::host_params::shim_params::IsolationType;
 
 /// Perform any initialization required for APs in the bootshim. On TDX, /// this puts
 /// the APs into the correct state and starts them by invoking TDVMCALL-based hypercall.

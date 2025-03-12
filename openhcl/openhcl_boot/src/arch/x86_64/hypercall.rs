@@ -58,26 +58,34 @@ fn write_hypercall_msr(enable: bool) {
 }
 
 /// Has to be called before using hypercalls.
-pub(crate) fn initialize(guest_os_id: u64, input_page: Option<u64>, isolation: IsolationType) {
+pub(crate) fn initialize(
+    guest_os_id: u64,
+    isolation: IsolationType,
+    input_page: Option<u64>,
+    output_page: Option<u64>,
+) {
     // We are assuming we are running under a Microsoft hypervisor, so there is
     // no need to check any cpuid leaves.
     report_os_id(guest_os_id, isolation);
 
     match isolation {
         IsolationType::Tdx => {
-            assert_eq!(input_page.unwrap() % TWO_MB, 0);
-
+            // TODO(babayet2) update safety comments
             // Set shared bit for the hypercall page entry in local mapping
             // SAFETY: input_page passed is taken from ram_buffer and ensured
             // that it is a valid large page
             unsafe {
                 map_with_shared_bit(input_page.unwrap(), TDX_SHARED_GPA_BOUNDARY_ADDRESS_BIT);
+                map_with_shared_bit(output_page.unwrap(), TDX_SHARED_GPA_BOUNDARY_ADDRESS_BIT);
             }
 
-            // Enable host visibility for hypercall page
+            //// Enable host visibility for hypercall page
             let input_page_range =
-                MemoryRange::new(input_page.unwrap()..input_page.unwrap() + TWO_MB);
+                MemoryRange::new(input_page.unwrap()..input_page.unwrap() + 4096);
+            let output_page_range =
+                MemoryRange::new(output_page.unwrap()..output_page.unwrap() + 4096);
             super::tdx::change_page_visibility(input_page_range, true);
+            super::tdx::change_page_visibility(output_page_range, true);
         }
 
         _ => {
@@ -87,13 +95,16 @@ pub(crate) fn initialize(guest_os_id: u64, input_page: Option<u64>, isolation: I
 }
 
 /// Call before jumping to kernel.
-pub(crate) fn uninitialize(input_page: Option<u64>, isolation: IsolationType) {
+pub(crate) fn uninitialize(
+    isolation: IsolationType,
+    input_page: Option<u64>,
+    output_page: Option<u64>,
+) {
     report_os_id(0, isolation);
 
     match isolation {
         IsolationType::Tdx => {
-            assert_eq!(input_page.unwrap() % TWO_MB, 0);
-
+            // TODO(babayet2) add safety comment
             // Set private bit for the hypercall page entry in local mapping
             // SAFETY: input_page passed is taken from ram_buffer and ensured
             // that it is a valid large page
@@ -103,9 +114,14 @@ pub(crate) fn uninitialize(input_page: Option<u64>, isolation: IsolationType) {
 
             // Disable host visibility for hypercall page
             let input_page_range =
-                MemoryRange::new(input_page.unwrap()..input_page.unwrap() + TWO_MB);
+                MemoryRange::new(input_page.unwrap()..input_page.unwrap() + 4096);
             super::tdx::change_page_visibility(input_page_range, false);
+            let output_page_range =
+                MemoryRange::new(output_page.unwrap()..output_page.unwrap() + 4096);
+            super::tdx::change_page_visibility(output_page_range, false);
             super::tdx::accept_pages(input_page_range)
+                .expect("accepting vtl 2 memory must not fail");
+            super::tdx::accept_pages(output_page_range)
                 .expect("accepting vtl 2 memory must not fail");
 
             // SAFETY: Flush TLB

@@ -37,7 +37,6 @@ impl IsolationType {
     }
 }
 
-
 /// Iterator for the list of accepted regions in the IGVM VTL 2 config region.
 /// Does not increment past the first with page count 0.
 pub struct ImportedRegionIter<'a> {

@@ -234,6 +234,22 @@ pub fn write_dt(
             .add_u64(p_reftime_sidecar_end, sidecar.end_reftime)?;
     }
 
+    #[cfg(target_arch = "x86_64")]
+    if isolation_type == IsolationType::Tdx {
+        let name = format_fixed!(32, "mailbox@{}", RESET_VECTOR_PAGE);
+        let mailbox_builder = root_builder
+            .start_node(name.as_ref())?
+            .add_str(p_compatible, "intel,wakeup-mailbox")?
+            .add_u64_array(p_reg, &[RESET_VECTOR_PAGE, 0x1000])?;
+        root_builder = mailbox_builder.end_node()?;
+
+        //let p_enable_method = cpu_builder.add_string("enable-method")?;
+        //let p_mailbox_addr = cpu_builder.add_string("wakeup-mailbox-addr")?;
+        //cpu_builder = cpu_builder.add_str(p_enable_method, "acpi-wakeup-mailbox")?;
+        //cpu_builder = cpu_builder.add_u64(p_mailbox_addr, RESET_VECTOR_PAGE)?;
+    }
+
+
     let hypervisor_builder = root_builder
         .start_node("hypervisor")?
         .add_str(p_compatible, "microsoft,hyperv")?;
@@ -253,14 +269,6 @@ pub fn write_dt(
         cpu_builder = cpu_builder.add_u32(p_pa_bits, pa_bits.into())?;
         // TODO: This is to avoid unused variable warning. Check if we can remove cfg(target_arch) for isolation types
         let _ = isolation_type;
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    if isolation_type == IsolationType::Tdx {
-        let p_enable_method = cpu_builder.add_string("enable-method")?;
-        let p_mailbox_addr = cpu_builder.add_string("wakeup-mailbox-addr")?;
-        cpu_builder = cpu_builder.add_str(p_enable_method, "acpi-wakeup-mailbox")?;
-        cpu_builder = cpu_builder.add_u64(p_mailbox_addr, RESET_VECTOR_PAGE)?;
     }
 
     // Add a CPU node for each cpu.
@@ -291,6 +299,9 @@ pub fn write_dt(
                 .add_u32(p_reg, cpu_entry.reg as u32)?
                 .add_str(p_status, "okay")?;
         }
+
+        let p_enable_method = cpu.add_string("enable-method")?;
+        cpu = cpu.add_str(p_enable_method, "wakeup-mailbox-addr")?;
 
         cpu_builder = cpu.end_node()?;
     }

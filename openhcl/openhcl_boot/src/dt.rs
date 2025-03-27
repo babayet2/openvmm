@@ -242,7 +242,7 @@ pub fn write_dt(
             .add_u32(p_size_cells, 1)?;
 
 
-        let name = format_fixed!(32, "wakeup_@{}", RESET_VECTOR_PAGE);
+        let name = format_fixed!(32, "wakeup_table@{:x}", RESET_VECTOR_PAGE);
         let mut mailbox_addr_builder = mailbox_builder
             .start_node(name.as_ref())?
             .add_str(p_compatible, "intel,wakeup-table")?

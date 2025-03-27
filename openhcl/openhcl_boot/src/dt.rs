@@ -236,12 +236,32 @@ pub fn write_dt(
 
     #[cfg(target_arch = "x86_64")]
     if isolation_type == IsolationType::Tdx {
+        let mut mailbox_builder = root_builder
+            .start_node("reserved-memory")?
+            .add_u32(p_address_cells, 2)?
+            .add_u32(p_size_cells, 1)?;
+
+
+        let name = format_fixed!(32, "wakeup_@{}", RESET_VECTOR_PAGE);
+        let mut mailbox_addr_builder = mailbox_builder
+            .start_node(name.as_ref())?
+            .add_str(p_compatible, "intel,wakeup-table")?
+            .add_u32_array(p_reg, &[0x0, RESET_VECTOR_PAGE.try_into().unwrap(), 0x1000])?;
+
+        mailbox_builder = mailbox_addr_builder.end_node()?;
+
+        root_builder = mailbox_builder.end_node()?;
+
+
+
+        /*
         let name = format_fixed!(32, "mailbox@{}", RESET_VECTOR_PAGE);
         let mailbox_builder = root_builder
             .start_node(name.as_ref())?
             .add_str(p_compatible, "intel,wakeup-mailbox")?
             .add_u64_array(p_reg, &[RESET_VECTOR_PAGE, 0x1000])?;
         root_builder = mailbox_builder.end_node()?;
+        */
 
         //let p_enable_method = cpu_builder.add_string("enable-method")?;
         //let p_mailbox_addr = cpu_builder.add_string("wakeup-mailbox-addr")?;
@@ -301,7 +321,7 @@ pub fn write_dt(
         }
 
         let p_enable_method = cpu.add_string("enable-method")?;
-        cpu = cpu.add_str(p_enable_method, "wakeup-mailbox-addr")?;
+        cpu = cpu.add_str(p_enable_method, "wakeup-table")?;
 
         cpu_builder = cpu.end_node()?;
     }

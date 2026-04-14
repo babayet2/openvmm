@@ -1243,6 +1243,68 @@ pub async fn run_set_vmbus_redirect(
     .context("set_vmbus_redirect")
 }
 
+/// Environment variable name for the directory containing NVMe emulator
+/// scripts (Register-NvmeEmulator.ps1, Add-NvmeFlexIoDevice.ps1,
+/// FlexIoCommon.psm1).
+pub const PETRI_FLEXIO_SCRIPTS_DIR: &str = "PETRI_FLEXIO_SCRIPTS_DIR";
+
+/// Returns the path to the FlexIO scripts directory, read from the
+/// `PETRI_FLEXIO_SCRIPTS_DIR` environment variable. Returns an error if the
+/// env var is unset or the required scripts are missing.
+pub fn get_flexio_scripts_dir() -> anyhow::Result<PathBuf> {
+    let dir = std::env::var(PETRI_FLEXIO_SCRIPTS_DIR).map_err(|_| {
+        anyhow::anyhow!(
+            "NVMe emulator scripts not found. Set {PETRI_FLEXIO_SCRIPTS_DIR} to the \
+             directory containing NVMe emulation management scripts \
+             (Register-NvmeEmulator.ps1, Add-NvmeFlexIoDevice.ps1, FlexIoCommon.psm1)."
+        )
+    })?;
+    let dir = PathBuf::from(dir);
+    for script in [
+        "Register-NvmeEmulator.ps1",
+        "Add-NvmeFlexIoDevice.ps1",
+        "FlexIoCommon.psm1",
+    ] {
+        if !dir.join(script).exists() {
+            anyhow::bail!(
+                "Required script '{script}' not found in {PETRI_FLEXIO_SCRIPTS_DIR}='{}'",
+                dir.display()
+            );
+        }
+    }
+    Ok(dir)
+}
+
+/// Invokes Add-NvmeFlexIoDevice.ps1 to attach an NVMe FlexIO emulator device
+/// to a Hyper-V VM. Each VHD path becomes an NVMe namespace backed by that
+/// VHD.
+pub async fn run_add_nvme_flexio_device(
+    vm_name: &str,
+    vhd_paths: &[PathBuf],
+    target_vtl: u8,
+) -> anyhow::Result<()> {
+    let scripts_dir = get_flexio_scripts_dir()?;
+    let script = scripts_dir.join("Add-NvmeFlexIoDevice.ps1");
+    let vhd_args: Vec<String> = vhd_paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    let vhd_refs: Vec<&str> = vhd_args.iter().map(|s| s.as_str()).collect();
+    let script_str = format!("& \"{}\"", script.display());
+    run_host_cmd(
+        PowerShellBuilder::new()
+            .cmdlet(script_str)
+            .arg("VmName", vm_name)
+            .arg("VhdPaths", ps::Array::new(&vhd_refs))
+            .arg("TargetVtl", target_vtl)
+            .finish()
+            .build(),
+    )
+    .await
+    .map(|_| ())
+    .context("add_nvme_flexio_device")
+}
+
 /// Runs Restart-OpenHCL, which will perform and OpenHCL servicing operation.
 pub async fn run_restart_openhcl(
     vmid: &Guid,

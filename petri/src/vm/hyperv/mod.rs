@@ -215,11 +215,16 @@ impl PetriVmmBackend for HyperVPetriBackend {
             }
 
             if *enable_vpci_boot {
-                todo!("hyperv nvme boot");
+                // VPCi boot is needed for NVMe emulator. Validated when
+                // FlexIO devices are attached below.
             }
         }
 
-        // Map SCSI
+        // Collect NVMe FlexIO device attachments for post-VM-creation setup.
+        // Each NVMe controller maps to a single FlexIO device invocation.
+        let mut nvme_flexio_attachments: Vec<(Vec<PathBuf>, u8)> = Vec::new();
+
+        // Map SCSI and NVMe controllers
         let mut scsi_controllers = HashMap::new();
         for (
             vsid,
@@ -230,27 +235,45 @@ impl PetriVmmBackend for HyperVPetriBackend {
             },
         ) in config.vmbus_storage_controllers.iter()
         {
-            if !matches!(controller_type, crate::VmbusStorageType::Scsi) {
-                todo!("other storage types for hyper-v")
+            match controller_type {
+                crate::VmbusStorageType::Scsi => {
+                    let mut hyperv_drives = HashMap::new();
+                    for (lun, Drive { disk, is_dvd }) in drives {
+                        hyperv_drives.insert(
+                            *lun,
+                            powershell::HyperVDrive {
+                                disk: petri_disk_to_hyperv(disk.as_ref(), &temp_dir).await?,
+                                is_dvd: *is_dvd,
+                            },
+                        );
+                    }
+                    scsi_controllers.insert(
+                        *vsid,
+                        powershell::HyperVScsiController {
+                            target_vtl: *target_vtl,
+                            drives: hyperv_drives,
+                        },
+                    );
+                }
+                crate::VmbusStorageType::Nvme => {
+                    let mut vhd_paths = Vec::new();
+                    for (_nsid, Drive { disk, is_dvd: _ }) in drives {
+                        let vhd = petri_disk_to_hyperv(disk.as_ref(), &temp_dir).await?;
+                        if let Some(path) = vhd {
+                            vhd_paths.push(path);
+                        }
+                    }
+                    let vtl_num = match target_vtl {
+                        crate::Vtl::Vtl0 => 0u8,
+                        crate::Vtl::Vtl2 => 2u8,
+                        _ => anyhow::bail!("unsupported VTL {:?} for NVMe FlexIO device", target_vtl),
+                    };
+                    nvme_flexio_attachments.push((vhd_paths, vtl_num));
+                }
+                _ => {
+                    todo!("storage type {:?} not yet supported for hyper-v", controller_type)
+                }
             }
-
-            let mut hyperv_drives = HashMap::new();
-            for (lun, Drive { disk, is_dvd }) in drives {
-                hyperv_drives.insert(
-                    *lun,
-                    powershell::HyperVDrive {
-                        disk: petri_disk_to_hyperv(disk.as_ref(), &temp_dir).await?,
-                        is_dvd: *is_dvd,
-                    },
-                );
-            }
-            scsi_controllers.insert(
-                *vsid,
-                powershell::HyperVScsiController {
-                    target_vtl: *target_vtl,
-                    drives: hyperv_drives,
-                },
-            );
         }
 
         // Map IDE
@@ -345,6 +368,14 @@ impl PetriVmmBackend for HyperVPetriBackend {
         };
 
         let vm = HyperVVM::new(hyperv_args, log_source.clone(), driver.clone()).await?;
+
+        // Attach NVMe FlexIO emulator devices (must happen after VM creation
+        // but before start).
+        for (vhd_paths, target_vtl) in &nvme_flexio_attachments {
+            powershell::run_add_nvme_flexio_device(vm.name(), vhd_paths, *target_vtl)
+                .await
+                .context("failed to attach NVMe FlexIO device")?;
+        }
 
         if properties.is_openhcl {
             // Copy the IGVM file locally, since it may not be accessible by

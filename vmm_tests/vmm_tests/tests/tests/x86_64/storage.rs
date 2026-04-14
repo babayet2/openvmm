@@ -383,17 +383,17 @@ async fn storvsp_hyperv<T: PetriVmmBackend>(
 
 /// Test a Linux VM with an NVMe emulator-backed disk assigned to VTL2,
 /// relayed as vSCSI to the guest. Requires hvldevicehost scripts installed
-/// and PETRI_FLEXIO_SCRIPTS_DIR set. Skips if the env var is not set.
+/// and PETRI_NVME_EMULATOR_SCRIPTS_DIR set. Skips if the env var is not set.
 #[cfg(windows)]
 #[vmm_test(hyperv_openhcl_uefi_x64(vhd(ubuntu_2504_server_x64)))]
 async fn storvsp_nvme_hyperv<T: PetriVmmBackend>(
     config: PetriVmBuilder<T>,
 ) -> Result<(), anyhow::Error> {
     // Skip if NVMe emulator scripts are not available.
-    if std::env::var(petri::hyperv::powershell::PETRI_FLEXIO_SCRIPTS_DIR).is_err() {
+    if std::env::var(petri::hyperv::powershell::PETRI_NVME_EMULATOR_SCRIPTS_DIR).is_err() {
         tracing::warn!(
             "Skipping storvsp_nvme_hyperv: {} not set",
-            petri::hyperv::powershell::PETRI_FLEXIO_SCRIPTS_DIR
+            petri::hyperv::powershell::PETRI_NVME_EMULATOR_SCRIPTS_DIR
         );
         return Ok(());
     }

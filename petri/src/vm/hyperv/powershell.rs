@@ -1246,15 +1246,15 @@ pub async fn run_set_vmbus_redirect(
 /// Environment variable name for the directory containing NVMe emulator
 /// scripts (Register-NvmeEmulator.ps1, Add-NvmeFlexIoDevice.ps1,
 /// FlexIoCommon.psm1).
-pub const PETRI_FLEXIO_SCRIPTS_DIR: &str = "PETRI_FLEXIO_SCRIPTS_DIR";
+pub const PETRI_NVME_EMULATOR_SCRIPTS_DIR: &str = "PETRI_NVME_EMULATOR_SCRIPTS_DIR";
 
 /// Returns the path to the FlexIO scripts directory, read from the
-/// `PETRI_FLEXIO_SCRIPTS_DIR` environment variable. Returns an error if the
+/// `PETRI_NVME_EMULATOR_SCRIPTS_DIR` environment variable. Returns an error if the
 /// env var is unset or the required scripts are missing.
 pub fn get_flexio_scripts_dir() -> anyhow::Result<PathBuf> {
-    let dir = std::env::var(PETRI_FLEXIO_SCRIPTS_DIR).map_err(|_| {
+    let dir = std::env::var(PETRI_NVME_EMULATOR_SCRIPTS_DIR).map_err(|_| {
         anyhow::anyhow!(
-            "NVMe emulator scripts not found. Set {PETRI_FLEXIO_SCRIPTS_DIR} to the \
+            "NVMe emulator scripts not found. Set {PETRI_NVME_EMULATOR_SCRIPTS_DIR} to the \
              directory containing NVMe emulation management scripts \
              (Register-NvmeEmulator.ps1, Add-NvmeFlexIoDevice.ps1, FlexIoCommon.psm1)."
         )
@@ -1267,7 +1267,7 @@ pub fn get_flexio_scripts_dir() -> anyhow::Result<PathBuf> {
     ] {
         if !dir.join(script).exists() {
             anyhow::bail!(
-                "Required script '{script}' not found in {PETRI_FLEXIO_SCRIPTS_DIR}='{}'",
+                "Required script '{script}' not found in {PETRI_NVME_EMULATOR_SCRIPTS_DIR}='{}'",
                 dir.display()
             );
         }

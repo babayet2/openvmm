@@ -118,6 +118,7 @@ impl PetriVmConfigOpenVmm {
             vmgs,
             tpm: tpm_config,
             vmbus_storage_controllers,
+            nvme_emulator_lun_mappings: _, // only used by Hyper-V backend
         } = petri_vm_config;
 
         tracing::debug!(?firmware, ?arch, "Petri VM firmware configuration");

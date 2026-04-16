@@ -74,6 +74,10 @@ pub struct HyperVPetriRuntime {
     output_dir: PathBuf,
     driver: DefaultDriver,
     properties: PetriVmProperties,
+    /// Maps config-defined NVMe VSIDs to Hyper-V-assigned FlexIO VSIDs.
+    /// FlexIO devices have read-only VirtualSystemIdentifiers, so the
+    /// actual VSID differs from the one specified in the test config.
+    nvme_vsid_remap: HashMap<Guid, Guid>,
 }
 
 #[async_trait]
@@ -222,7 +226,7 @@ impl PetriVmmBackend for HyperVPetriBackend {
 
         // Collect NVMe FlexIO device attachments for post-VM-creation setup.
         // Each NVMe controller maps to a single FlexIO device invocation.
-        let mut nvme_flexio_attachments: Vec<(Vec<PathBuf>, u8)> = Vec::new();
+        let mut nvme_flexio_attachments: Vec<(Guid, Vec<PathBuf>, u8)> = Vec::new();
 
         // Map SCSI and NVMe controllers
         let mut scsi_controllers = HashMap::new();
@@ -266,12 +270,17 @@ impl PetriVmmBackend for HyperVPetriBackend {
                     let vtl_num = match target_vtl {
                         crate::Vtl::Vtl0 => 0u8,
                         crate::Vtl::Vtl2 => 2u8,
-                        _ => anyhow::bail!("unsupported VTL {:?} for NVMe FlexIO device", target_vtl),
+                        _ => {
+                            anyhow::bail!("unsupported VTL {:?} for NVMe FlexIO device", target_vtl)
+                        }
                     };
-                    nvme_flexio_attachments.push((vhd_paths, vtl_num));
+                    nvme_flexio_attachments.push((*vsid, vhd_paths, vtl_num));
                 }
                 _ => {
-                    todo!("storage type {:?} not yet supported for hyper-v", controller_type)
+                    todo!(
+                        "storage type {:?} not yet supported for hyper-v",
+                        controller_type
+                    )
                 }
             }
         }
@@ -370,11 +379,20 @@ impl PetriVmmBackend for HyperVPetriBackend {
         let vm = HyperVVM::new(hyperv_args, log_source.clone(), driver.clone()).await?;
 
         // Attach NVMe FlexIO emulator devices (must happen after VM creation
-        // but before start).
-        for (vhd_paths, target_vtl) in &nvme_flexio_attachments {
-            powershell::run_add_nvme_flexio_device(vm.name(), vhd_paths, *target_vtl)
-                .await
-                .context("failed to attach NVMe FlexIO device")?;
+        // but before start). Build a remap from config VSIDs to the
+        // Hyper-V-assigned VSIDs (FlexIO VirtualSystemIdentifiers is read-only).
+        let mut nvme_vsid_remap = HashMap::new();
+        for (config_vsid, vhd_paths, target_vtl) in &nvme_flexio_attachments {
+            let actual_vsid =
+                powershell::run_add_nvme_flexio_device(vm.name(), vhd_paths, *target_vtl)
+                    .await
+                    .context("failed to attach NVMe FlexIO device")?;
+            tracing::info!(
+                ?config_vsid,
+                ?actual_vsid,
+                "FlexIO NVMe device attached, VSID remapped"
+            );
+            nvme_vsid_remap.insert(*config_vsid, actual_vsid);
         }
 
         if properties.is_openhcl {
@@ -429,6 +447,7 @@ impl PetriVmmBackend for HyperVPetriBackend {
                 output_dir: log_source.output_dir().to_owned(),
                 driver: driver.clone(),
                 properties,
+                nvme_vsid_remap,
             },
             config
                 .firmware
@@ -576,7 +595,13 @@ impl PetriVmRuntime for HyperVPetriRuntime {
     }
 
     async fn set_vtl2_settings(&mut self, settings: &Vtl2Settings) -> anyhow::Result<()> {
-        self.vm.set_base_vtl2_settings(settings).await
+        if self.nvme_vsid_remap.is_empty() {
+            self.vm.set_base_vtl2_settings(settings).await
+        } else {
+            let mut settings = settings.clone();
+            remap_nvme_vsids(&mut settings, &self.nvme_vsid_remap);
+            self.vm.set_base_vtl2_settings(&settings).await
+        }
     }
 
     async fn set_vmbus_drive(
@@ -596,6 +621,41 @@ impl PetriVmRuntime for HyperVPetriRuntime {
                 false,
             )
             .await
+    }
+}
+
+/// Rewrite NVMe physical device VSIDs in VTL2 settings using the remap table.
+/// This is needed because Hyper-V FlexIO devices have read-only
+/// VirtualSystemIdentifiers — the test config uses a placeholder VSID that
+/// must be replaced with the Hyper-V-assigned one.
+fn remap_nvme_vsids(settings: &mut Vtl2Settings, remap: &HashMap<Guid, Guid>) {
+    let Some(dynamic) = settings.dynamic.as_mut() else {
+        return;
+    };
+    for controller in &mut dynamic.storage_controllers {
+        for lun in &mut controller.luns {
+            if let Some(pd) = lun.physical_devices.as_mut() {
+                if let Some(dev) = pd.device.as_mut() {
+                    remap_device_path(dev, remap);
+                }
+                for dev in &mut pd.devices {
+                    remap_device_path(dev, remap);
+                }
+            }
+        }
+    }
+}
+
+fn remap_device_path(dev: &mut vtl2_settings_proto::PhysicalDevice, remap: &HashMap<Guid, Guid>) {
+    if let Ok(guid) = dev.device_path.parse::<Guid>() {
+        if let Some(actual) = remap.get(&guid) {
+            tracing::debug!(
+                config_vsid = %guid,
+                actual_vsid = %actual,
+                "remapping NVMe VSID in VTL2 settings"
+            );
+            dev.device_path = actual.to_string();
+        }
     }
 }
 

@@ -1277,21 +1277,18 @@ pub fn get_flexio_scripts_dir() -> anyhow::Result<PathBuf> {
 
 /// Invokes Add-NvmeFlexIoDevice.ps1 to attach an NVMe FlexIO emulator device
 /// to a Hyper-V VM. Each VHD path becomes an NVMe namespace backed by that
-/// VHD.
+/// VHD. Returns the Hyper-V-assigned VMBus channel VSID for the new device.
 pub async fn run_add_nvme_flexio_device(
     vm_name: &str,
     vhd_paths: &[PathBuf],
     target_vtl: u8,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Guid> {
     let scripts_dir = get_flexio_scripts_dir()?;
     let script = scripts_dir.join("Add-NvmeFlexIoDevice.ps1");
-    let vhd_args: Vec<String> = vhd_paths
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect();
+    let vhd_args: Vec<String> = vhd_paths.iter().map(|p| p.display().to_string()).collect();
     let vhd_refs: Vec<&str> = vhd_args.iter().map(|s| s.as_str()).collect();
     let script_str = format!("& \"{}\"", script.display());
-    run_host_cmd(
+    let output = run_host_cmd(
         PowerShellBuilder::new()
             .cmdlet(script_str)
             .arg("VmName", vm_name)
@@ -1301,8 +1298,11 @@ pub async fn run_add_nvme_flexio_device(
             .build(),
     )
     .await
-    .map(|_| ())
-    .context("add_nvme_flexio_device")
+    .context("add_nvme_flexio_device")?;
+    let vsid_str = output.trim();
+    vsid_str
+        .parse::<Guid>()
+        .with_context(|| format!("failed to parse FlexIO VSID from script output: {vsid_str:?}"))
 }
 
 /// Runs Restart-OpenHCL, which will perform and OpenHCL servicing operation.

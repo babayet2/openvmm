@@ -74,8 +74,8 @@ pub struct HyperVPetriRuntime {
     output_dir: PathBuf,
     driver: DefaultDriver,
     properties: PetriVmProperties,
-    /// Maps config-defined NVMe VSIDs to Hyper-V-assigned FlexIO VSIDs.
-    /// FlexIO devices have read-only VirtualSystemIdentifiers, so the
+    /// Maps config-defined NVMe VSIDs to Hyper-V-assigned NVMe emulator VSIDs.
+    /// NVMe emulator devices have read-only VirtualSystemIdentifiers, so the
     /// actual VSID differs from the one specified in the test config.
     nvme_vsid_remap: HashMap<Guid, Guid>,
 }
@@ -220,13 +220,13 @@ impl PetriVmmBackend for HyperVPetriBackend {
 
             if *enable_vpci_boot {
                 // VPCi boot is needed for NVMe emulator. Validated when
-                // FlexIO devices are attached below.
+                // NVMe emulator devices are attached below.
             }
         }
 
-        // Collect NVMe FlexIO device attachments for post-VM-creation setup.
-        // Each NVMe controller maps to a single FlexIO device invocation.
-        let mut nvme_flexio_attachments: Vec<(Guid, Vec<PathBuf>, u8)> = Vec::new();
+        // Collect NVMe emulator device attachments for post-VM-creation setup.
+        // Each NVMe controller maps to a single NVMe emulator device invocation.
+        let mut nvme_emulator_attachments: Vec<(Guid, Vec<PathBuf>, u8)> = Vec::new();
 
         // Map SCSI and NVMe controllers
         let mut scsi_controllers = HashMap::new();
@@ -271,10 +271,10 @@ impl PetriVmmBackend for HyperVPetriBackend {
                         crate::Vtl::Vtl0 => 0u8,
                         crate::Vtl::Vtl2 => 2u8,
                         _ => {
-                            anyhow::bail!("unsupported VTL {:?} for NVMe FlexIO device", target_vtl)
+                            anyhow::bail!("unsupported VTL {:?} for NVMe emulator device", target_vtl)
                         }
                     };
-                    nvme_flexio_attachments.push((*vsid, vhd_paths, vtl_num));
+                    nvme_emulator_attachments.push((*vsid, vhd_paths, vtl_num));
                 }
                 _ => {
                     todo!(
@@ -378,19 +378,19 @@ impl PetriVmmBackend for HyperVPetriBackend {
 
         let vm = HyperVVM::new(hyperv_args, log_source.clone(), driver.clone()).await?;
 
-        // Attach NVMe FlexIO emulator devices (must happen after VM creation
+        // Attach NVMe emulator devices (must happen after VM creation
         // but before start). Build a remap from config VSIDs to the
-        // Hyper-V-assigned VSIDs (FlexIO VirtualSystemIdentifiers is read-only).
+        // Hyper-V-assigned VSIDs (NVMe emulator VirtualSystemIdentifiers is read-only).
         let mut nvme_vsid_remap = HashMap::new();
-        for (config_vsid, vhd_paths, target_vtl) in &nvme_flexio_attachments {
+        for (config_vsid, vhd_paths, target_vtl) in &nvme_emulator_attachments {
             let actual_vsid =
-                powershell::run_add_nvme_flexio_device(vm.name(), vhd_paths, *target_vtl)
+                powershell::run_add_nvme_emulator_device(vm.name(), vhd_paths, *target_vtl)
                     .await
-                    .context("failed to attach NVMe FlexIO device")?;
+                    .context("failed to attach NVMe emulator device")?;
             tracing::info!(
                 ?config_vsid,
                 ?actual_vsid,
-                "FlexIO NVMe device attached, VSID remapped"
+                "NVMe emulator device attached, VSID remapped"
             );
             nvme_vsid_remap.insert(*config_vsid, actual_vsid);
         }
@@ -625,7 +625,7 @@ impl PetriVmRuntime for HyperVPetriRuntime {
 }
 
 /// Rewrite NVMe physical device VSIDs in VTL2 settings using the remap table.
-/// This is needed because Hyper-V FlexIO devices have read-only
+/// This is needed because Hyper-V NVMe emulator devices have read-only
 /// VirtualSystemIdentifiers — the test config uses a placeholder VSID that
 /// must be replaced with the Hyper-V-assigned one.
 fn remap_nvme_vsids(settings: &mut Vtl2Settings, remap: &HashMap<Guid, Guid>) {

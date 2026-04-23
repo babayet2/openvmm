@@ -1244,26 +1244,26 @@ pub async fn run_set_vmbus_redirect(
 }
 
 /// Environment variable name for the directory containing NVMe emulator
-/// scripts (Register-NvmeEmulator.ps1, Add-NvmeFlexIoDevice.ps1,
-/// FlexIoCommon.psm1).
+/// scripts (Register-NvmeEmulator.ps1, Add-NvmeEmulatorDevice.ps1,
+/// NvmeEmulatorCommon.psm1).
 pub const PETRI_NVME_EMULATOR_SCRIPTS_DIR: &str = "PETRI_NVME_EMULATOR_SCRIPTS_DIR";
 
-/// Returns the path to the FlexIO scripts directory, read from the
+/// Returns the path to the NVMe emulator scripts directory, read from the
 /// `PETRI_NVME_EMULATOR_SCRIPTS_DIR` environment variable. Returns an error if the
 /// env var is unset or the required scripts are missing.
-pub fn get_flexio_scripts_dir() -> anyhow::Result<PathBuf> {
+pub fn get_nvme_emulator_scripts_dir() -> anyhow::Result<PathBuf> {
     let dir = std::env::var(PETRI_NVME_EMULATOR_SCRIPTS_DIR).map_err(|_| {
         anyhow::anyhow!(
             "NVMe emulator scripts not found. Set {PETRI_NVME_EMULATOR_SCRIPTS_DIR} to the \
              directory containing NVMe emulation management scripts \
-             (Register-NvmeEmulator.ps1, Add-NvmeFlexIoDevice.ps1, FlexIoCommon.psm1)."
+             (Register-NvmeEmulator.ps1, Add-NvmeEmulatorDevice.ps1, NvmeEmulatorCommon.psm1)."
         )
     })?;
     let dir = PathBuf::from(dir);
     for script in [
         "Register-NvmeEmulator.ps1",
-        "Add-NvmeFlexIoDevice.ps1",
-        "FlexIoCommon.psm1",
+        "Add-NvmeEmulatorDevice.ps1",
+        "NvmeEmulatorCommon.psm1",
     ] {
         if !dir.join(script).exists() {
             anyhow::bail!(
@@ -1275,16 +1275,16 @@ pub fn get_flexio_scripts_dir() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Invokes Add-NvmeFlexIoDevice.ps1 to attach an NVMe FlexIO emulator device
+/// Invokes Add-NvmeEmulatorDevice.ps1 to attach an NVMe emulator device
 /// to a Hyper-V VM. Each VHD path becomes an NVMe namespace backed by that
 /// VHD. Returns the Hyper-V-assigned VMBus channel VSID for the new device.
-pub async fn run_add_nvme_flexio_device(
+pub async fn run_add_nvme_emulator_device(
     vm_name: &str,
     vhd_paths: &[PathBuf],
     target_vtl: u8,
 ) -> anyhow::Result<Guid> {
-    let scripts_dir = get_flexio_scripts_dir()?;
-    let script = scripts_dir.join("Add-NvmeFlexIoDevice.ps1");
+    let scripts_dir = get_nvme_emulator_scripts_dir()?;
+    let script = scripts_dir.join("Add-NvmeEmulatorDevice.ps1");
     let vhd_args: Vec<String> = vhd_paths.iter().map(|p| p.display().to_string()).collect();
     let vhd_refs: Vec<&str> = vhd_args.iter().map(|s| s.as_str()).collect();
     let script_str = format!("& \"{}\"", script.display());
@@ -1298,11 +1298,11 @@ pub async fn run_add_nvme_flexio_device(
             .build(),
     )
     .await
-    .context("add_nvme_flexio_device")?;
+    .context("add_nvme_emulator_device")?;
     let vsid_str = output.trim();
     vsid_str
         .parse::<Guid>()
-        .with_context(|| format!("failed to parse FlexIO VSID from script output: {vsid_str:?}"))
+        .with_context(|| format!("failed to parse NVMe emulator VSID from script output: {vsid_str:?}"))
 }
 
 /// Runs Restart-OpenHCL, which will perform and OpenHCL servicing operation.

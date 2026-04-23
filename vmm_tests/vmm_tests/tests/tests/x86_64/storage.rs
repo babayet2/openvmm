@@ -43,6 +43,8 @@ use vmm_test_macros::openvmm_test;
 #[cfg(windows)]
 use vmm_test_macros::vmm_test;
 
+#[cfg(windows)]
+use petri_artifacts_vmm_test::artifacts::openhcl_igvm::LATEST_RELEASE_STANDARD_X64;
 
 /// Create a VPCI device config for an NVMe controller assigned to VTL2, with a single namespace.
 /// The namespace will be backed by either a file or a ramdisk, depending on whether
@@ -385,10 +387,16 @@ async fn storvsp_hyperv<T: PetriVmmBackend>(
 /// Test a Linux VM with an NVMe emulator-backed disk assigned to VTL2,
 /// relayed as vSCSI to the guest. Requires hvldevicehost scripts installed
 /// and PETRI_NVME_EMULATOR_SCRIPTS_DIR set. Skips if the env var is not set.
+///
+/// Uses the release IGVM to avoid alias-mapped DMA incompatibility with the
+/// NVMe emulator (hvldevicehost cannot handle alias-mapped GPA addresses).
 #[cfg(windows)]
-#[vmm_test(unstable_hyperv_openhcl_uefi_x64(vhd(ubuntu_2504_server_x64)))]
+#[vmm_test(unstable_hyperv_openhcl_uefi_x64(vhd(ubuntu_2504_server_x64))[LATEST_RELEASE_STANDARD_X64])]
 async fn storvsp_nvme_hyperv<T: PetriVmmBackend>(
     config: PetriVmBuilder<T>,
+    (release_igvm,): (
+        petri::ResolvedArtifact<impl petri_artifacts_common::tags::IsOpenhclIgvm>,
+    ),
 ) -> Result<(), anyhow::Error> {
     // Skip if NVMe emulator scripts are not available.
     if std::env::var(petri::hyperv::powershell::PETRI_NVME_EMULATOR_SCRIPTS_DIR).is_err() {
@@ -428,6 +436,7 @@ async fn storvsp_nvme_hyperv<T: PetriVmmBackend>(
     let vhd_path = vhd.into_temp_path();
 
     let (mut vm, agent) = config
+        .with_custom_openhcl(release_igvm)
         .with_vmbus_redirect(true)
         .add_vtl2_storage_controller(
             Vtl2StorageControllerBuilder::new(ControllerType::Scsi)

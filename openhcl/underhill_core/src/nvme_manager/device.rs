@@ -166,13 +166,15 @@ impl CreateNvmeDriver for VfioNvmeDriverSpawner {
                 .with_context(|| format!("failed to restore vfio device for {}", pci_id))
                 .map_err(NvmeSpawnerError::Vfio)?;
 
-            // Always enable bounce buffering (see create_nvme_device comment).
+            // TODO: For now, any isolation means use bounce buffering. This
+            // needs to change when we have nvme devices that support DMA to
+            // confidential memory.
             nvme_driver::NvmeDriver::restore(
                 driver_source,
                 vp_count,
                 vfio_device,
                 saved_state,
-                true,
+                self.is_isolated,
             )
             .instrument(tracing::info_span!("nvme_driver_restore"))
             .await
@@ -277,7 +279,7 @@ impl VfioNvmeDriverSpawner {
         driver_source: &VmTaskDriverSource,
         pci_id: &str,
         vp_count: u32,
-        _is_isolated: bool,
+        is_isolated: bool,
         dma_clients: VfioDmaClients,
     ) -> Result<nvme_driver::NvmeDriver<VfioDevice>, NvmeSpawnerError> {
         let device = VfioDevice::new(driver_source, pci_id, dma_clients)
@@ -286,15 +288,10 @@ impl VfioNvmeDriverSpawner {
             .with_context(|| format!("failed to create vfio device for {}", pci_id))
             .map_err(NvmeSpawnerError::Vfio)?;
 
-        // Always enable bounce buffering. This is required for:
-        // - Isolated VMs where the device can't access protected memory
-        // - FlexIO/HDV emulated devices where the emulator reads GPAs via HDV,
-        //   but VTL0 guest memory IOVAs differ from GPAs due to the hypervisor's
-        //   DMA mapping offset
-        // The NVMe driver's issue_external path detects IOVA != GPA at runtime
-        // and falls back to double-buffering; the bounce_buffer flag ensures the
-        // DMA pool is large enough to handle max-sized transfers.
-        nvme_driver::NvmeDriver::new(driver_source, vp_count, device, true)
+        // TODO: For now, any isolation means use bounce buffering. This
+        // needs to change when we have nvme devices that support DMA to
+        // confidential memory.
+        nvme_driver::NvmeDriver::new(driver_source, vp_count, device, is_isolated)
             .instrument(tracing::info_span!("nvme_driver_new", pci_id))
             .await
             .map_err(NvmeSpawnerError::DeviceInitFailed)

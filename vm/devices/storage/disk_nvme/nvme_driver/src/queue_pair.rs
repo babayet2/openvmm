@@ -561,7 +561,6 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
                 send_req,
                 send_cmd,
                 alloc,
-                bounce_buffer,
             }),
             mem,
             device_id: device_id.into(),
@@ -740,11 +739,6 @@ pub struct Issuer {
     #[inspect(skip)]
     send_req: mesh::Sender<Req>,
     alloc: PageAllocator,
-    /// When true, always double-buffer I/O through DMA memory instead of
-    /// using guest IOVAs directly. Required when the device cannot access
-    /// guest memory via IOVAs (e.g., FlexIO/HDV emulated devices where the
-    /// emulator reads GPAs, not IOVAs).
-    bounce_buffer: bool,
 }
 
 impl Issuer {
@@ -794,11 +788,10 @@ impl Issuer {
             .probe_gpns(mem.gpns())
             .map_err(RequestError::Memory)?;
 
-        let prp = if !self.bounce_buffer
-            && mem
-                .gpns()
-                .iter()
-                .all(|&gpn| guest_memory.iova(gpn * PAGE_SIZE64) == Some(gpn * PAGE_SIZE64))
+        let prp = if mem
+            .gpns()
+            .iter()
+            .all(|&gpn| guest_memory.iova(gpn * PAGE_SIZE64).is_some())
         {
             // Guest memory is available to the device, so issue the IO directly.
             self.make_prp(

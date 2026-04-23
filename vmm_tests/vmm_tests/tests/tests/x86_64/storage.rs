@@ -386,7 +386,7 @@ async fn storvsp_hyperv<T: PetriVmmBackend>(
 /// relayed as vSCSI to the guest. Requires hvldevicehost scripts installed
 /// and PETRI_NVME_EMULATOR_SCRIPTS_DIR set. Skips if the env var is not set.
 #[cfg(windows)]
-#[vmm_test(hyperv_openhcl_uefi_x64(vhd(ubuntu_2504_server_x64)))]
+#[vmm_test(unstable_hyperv_openhcl_uefi_x64(vhd(ubuntu_2504_server_x64)))]
 async fn storvsp_nvme_hyperv<T: PetriVmmBackend>(
     config: PetriVmBuilder<T>,
 ) -> Result<(), anyhow::Error> {

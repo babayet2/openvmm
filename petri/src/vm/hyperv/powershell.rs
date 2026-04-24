@@ -1300,9 +1300,9 @@ pub async fn run_add_nvme_emulator_device(
     .await
     .context("add_nvme_emulator_device")?;
     let vsid_str = output.trim();
-    vsid_str
-        .parse::<Guid>()
-        .with_context(|| format!("failed to parse NVMe emulator VSID from script output: {vsid_str:?}"))
+    vsid_str.parse::<Guid>().with_context(|| {
+        format!("failed to parse NVMe emulator VSID from script output: {vsid_str:?}")
+    })
 }
 
 /// Runs Restart-OpenHCL, which will perform and OpenHCL servicing operation.

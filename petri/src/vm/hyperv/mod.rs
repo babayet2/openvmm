@@ -74,10 +74,6 @@ pub struct HyperVPetriRuntime {
     output_dir: PathBuf,
     driver: DefaultDriver,
     properties: PetriVmProperties,
-    /// Maps config-defined NVMe VSIDs to Hyper-V-assigned NVMe emulator VSIDs.
-    /// NVMe emulator devices have read-only VirtualSystemIdentifiers, so the
-    /// actual VSID differs from the one specified in the test config.
-    nvme_vsid_remap: HashMap<Guid, Guid>,
 }
 
 #[async_trait]
@@ -162,7 +158,7 @@ impl PetriVmmBackend for HyperVPetriBackend {
 
     async fn run(
         self,
-        config: PetriVmConfig,
+        mut config: PetriVmConfig,
         _modify_vmm_config: Option<ModifyFn<Self::VmmConfig>>,
         resources: &PetriVmResources,
         properties: PetriVmProperties,
@@ -271,7 +267,10 @@ impl PetriVmmBackend for HyperVPetriBackend {
                         crate::Vtl::Vtl0 => 0u8,
                         crate::Vtl::Vtl2 => 2u8,
                         _ => {
-                            anyhow::bail!("unsupported VTL {:?} for NVMe emulator device", target_vtl)
+                            anyhow::bail!(
+                                "unsupported VTL {:?} for NVMe emulator device",
+                                target_vtl
+                            )
                         }
                     };
                     nvme_emulator_attachments.push((*vsid, vhd_paths, vtl_num));
@@ -379,20 +378,52 @@ impl PetriVmmBackend for HyperVPetriBackend {
         let vm = HyperVVM::new(hyperv_args, log_source.clone(), driver.clone()).await?;
 
         // Attach NVMe emulator devices (must happen after VM creation
-        // but before start). Build a remap from config VSIDs to the
-        // Hyper-V-assigned VSIDs (NVMe emulator VirtualSystemIdentifiers is read-only).
-        let mut nvme_vsid_remap = HashMap::new();
+        // but before start). NVMe emulator VirtualSystemIdentifiers are
+        // read-only — Hyper-V assigns the VSID, so we learn it here and
+        // write it into the config for the first time.
         for (config_vsid, vhd_paths, target_vtl) in &nvme_emulator_attachments {
             let actual_vsid =
                 powershell::run_add_nvme_emulator_device(vm.name(), vhd_paths, *target_vtl)
                     .await
                     .context("failed to attach NVMe emulator device")?;
-            tracing::info!(
-                ?config_vsid,
-                ?actual_vsid,
-                "NVMe emulator device attached, VSID remapped"
+            tracing::info!(?config_vsid, ?actual_vsid, "NVMe emulator device attached");
+
+            // Replace the placeholder key in vmbus_storage_controllers with
+            // the Hyper-V-assigned VSID.
+            let ctrl = config
+                .vmbus_storage_controllers
+                .remove(config_vsid)
+                .with_context(|| {
+                    format!(
+                        "NVMe placeholder VSID {config_vsid} not found in vmbus_storage_controllers"
+                    )
+                })?;
+            anyhow::ensure!(
+                !config.vmbus_storage_controllers.contains_key(&actual_vsid),
+                "Hyper-V-assigned VSID {actual_vsid} collides with an existing controller key"
             );
-            nvme_vsid_remap.insert(*config_vsid, actual_vsid);
+            config.vmbus_storage_controllers.insert(actual_vsid, ctrl);
+
+            // Update VTL2 settings physical device paths that reference this
+            // NVMe controller so OpenHCL sees the real VSID.
+            if let Some(openhcl_config) = config.firmware.openhcl_config_mut() {
+                if let Some(settings) = openhcl_config.vtl2_settings.as_mut() {
+                    assign_nvme_vsid(settings, config_vsid, &actual_vsid);
+                }
+            }
+        }
+
+        // If any NVMe VSIDs were assigned, push the corrected VTL2 settings
+        // to the VM before start (overwriting the initial management_vtl_settings
+        // that contained placeholder VSIDs).
+        if !nvme_emulator_attachments.is_empty() {
+            if let Some(openhcl_config) = config.firmware.openhcl_config() {
+                if let Some(settings) = openhcl_config.vtl2_settings.as_ref() {
+                    vm.set_base_vtl2_settings(settings).await.context(
+                        "failed to push corrected VTL2 settings after NVMe VSID assignment",
+                    )?;
+                }
+            }
         }
 
         if properties.is_openhcl {
@@ -447,7 +478,6 @@ impl PetriVmmBackend for HyperVPetriBackend {
                 output_dir: log_source.output_dir().to_owned(),
                 driver: driver.clone(),
                 properties,
-                nvme_vsid_remap,
             },
             config
                 .firmware
@@ -595,13 +625,7 @@ impl PetriVmRuntime for HyperVPetriRuntime {
     }
 
     async fn set_vtl2_settings(&mut self, settings: &Vtl2Settings) -> anyhow::Result<()> {
-        if self.nvme_vsid_remap.is_empty() {
-            self.vm.set_base_vtl2_settings(settings).await
-        } else {
-            let mut settings = settings.clone();
-            remap_nvme_vsids(&mut settings, &self.nvme_vsid_remap);
-            self.vm.set_base_vtl2_settings(&settings).await
-        }
+        self.vm.set_base_vtl2_settings(settings).await
     }
 
     async fn set_vmbus_drive(
@@ -624,11 +648,10 @@ impl PetriVmRuntime for HyperVPetriRuntime {
     }
 }
 
-/// Rewrite NVMe physical device VSIDs in VTL2 settings using the remap table.
-/// This is needed because Hyper-V NVMe emulator devices have read-only
-/// VirtualSystemIdentifiers — the test config uses a placeholder VSID that
-/// must be replaced with the Hyper-V-assigned one.
-fn remap_nvme_vsids(settings: &mut Vtl2Settings, remap: &HashMap<Guid, Guid>) {
+/// Update NVMe physical device paths in VTL2 settings, replacing a placeholder
+/// VSID with the actual Hyper-V-assigned one. Called once per NVMe controller
+/// immediately after attachment — this is a first-time assignment, not a remap.
+fn assign_nvme_vsid(settings: &mut Vtl2Settings, placeholder: &Guid, actual: &Guid) {
     let Some(dynamic) = settings.dynamic.as_mut() else {
         return;
     };
@@ -636,23 +659,30 @@ fn remap_nvme_vsids(settings: &mut Vtl2Settings, remap: &HashMap<Guid, Guid>) {
         for lun in &mut controller.luns {
             if let Some(pd) = lun.physical_devices.as_mut() {
                 if let Some(dev) = pd.device.as_mut() {
-                    remap_device_path(dev, remap);
+                    assign_device_path(dev, placeholder, actual);
                 }
                 for dev in &mut pd.devices {
-                    remap_device_path(dev, remap);
+                    assign_device_path(dev, placeholder, actual);
                 }
             }
         }
     }
 }
 
-fn remap_device_path(dev: &mut vtl2_settings_proto::PhysicalDevice, remap: &HashMap<Guid, Guid>) {
+fn assign_device_path(
+    dev: &mut vtl2_settings_proto::PhysicalDevice,
+    placeholder: &Guid,
+    actual: &Guid,
+) {
+    if dev.device_type != i32::from(vtl2_settings_proto::physical_device::DeviceType::Nvme) {
+        return;
+    }
     if let Ok(guid) = dev.device_path.parse::<Guid>() {
-        if let Some(actual) = remap.get(&guid) {
+        if guid == *placeholder {
             tracing::debug!(
-                config_vsid = %guid,
-                actual_vsid = %actual,
-                "remapping NVMe VSID in VTL2 settings"
+                %placeholder,
+                %actual,
+                "assigning NVMe VSID in VTL2 settings"
             );
             dev.device_path = actual.to_string();
         }

@@ -915,7 +915,7 @@ impl<T: PetriVmmBackend> PetriVmBuilder<T> {
         let uses_pipette_as_init = self.uses_pipette_as_init();
         let properties = self.properties();
 
-        let (mut runtime, config) = self
+        let (mut runtime, mut config) = self
             .backend
             .run(
                 self.config,
@@ -924,6 +924,7 @@ impl<T: PetriVmmBackend> PetriVmBuilder<T> {
                 properties,
             )
             .await?;
+        runtime.apply_post_creation_config(&mut config);
         let openhcl_diag_handler = runtime.openhcl_diag();
         let watchdog_tasks =
             Self::start_watchdog_tasks(&self.resources, &mut runtime, self.enable_screenshots)?;
@@ -1955,6 +1956,12 @@ pub trait PetriVmRuntime: Send + Sync + 'static {
     async fn get_guest_state_file(&self) -> anyhow::Result<Option<PathBuf>> {
         Ok(None)
     }
+    /// Apply backend-specific modifications to the runtime config after VM
+    /// creation. Some backends need to reconcile the generic config with
+    /// backend-assigned values (e.g., device identifiers that differ from
+    /// what the test config specified). Called once, after the backend's
+    /// `run()` returns and before the VM is used by tests.
+    fn apply_post_creation_config(&self, _config: &mut PetriVmRuntimeConfig) {}
     /// Set the OpenHCL VTL2 settings
     async fn set_vtl2_settings(&mut self, settings: &Vtl2Settings) -> anyhow::Result<()>;
     /// Add or modify a VMBus disk drive

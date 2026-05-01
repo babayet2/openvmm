@@ -397,6 +397,17 @@ function New-CustomVM
     $vmid = $vm.ResultingSystem.Name
     $vssd = $vm.ResultingSystem | Get-CimAssociatedInstance -ResultClass "Msvm_VirtualSystemSettingData" -Association "Msvm_SettingsDefineState"
 
+    # FlexIO emulators open VHD files directly inside vmwp.exe, which runs
+    # as NT VIRTUAL MACHINE\{VM-ID}. Unlike SCSI (where VMMS grants file
+    # access automatically), we must grant access explicitly.
+    if ($NvmeControllers) {
+        foreach ($controller in $NvmeControllers.GetEnumerator()) {
+            foreach ($vhdPath in $controller.Value["Drives"]) {
+                icacls $vhdPath /grant "NT VIRTUAL MACHINE\${vmid}:(F)" | Out-Null
+            }
+        }
+    }
+
     if ($ScsiControllers -or $IdeControllers) {
         if ($ScsiControllers) {
             $controllersWmi = $vssd | Get-CimAssociatedInstance -ResultClassName "Msvm_ResourceAllocationSettingData" | Where-Object {

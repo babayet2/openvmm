@@ -374,7 +374,6 @@ function New-CustomVM
                 "and the module is available on this host.")
         }
         Import-Module HvlDeviceHost -ErrorAction Stop
-        Register-HvlDeviceHostClsid $CLSID_FIOV_NVME
         foreach ($controller in $NvmeControllers.GetEnumerator()) {
             $vsid = $controller.Name
             $targetVtl = $controller.Value["Vtl"]
@@ -384,12 +383,6 @@ function New-CustomVM
                 -TargetVtl $targetVtl `
                 -Vsid ([Guid]$vsid) `
                 | ConvertTo-CimEmbeddedString
-
-            # For emulated NVMe drives, we must explicitly give the VM access to
-            # the backing VHD
-            foreach ($vhdPath in $controller.Value["Drives"]) {
-                icacls $vhdPath /grant "NT VIRTUAL MACHINE\${vmid}:(F)" | Out-Null
-            }
         }
     }
 

@@ -401,6 +401,20 @@ impl PetriVmmBackend for HyperVPetriBackend {
             }
         }
 
+        // Grant the VM access to NVMe VHDs
+        for path in config
+            .vmbus_storage_controllers
+            .values()
+            .filter(|c| matches!(c.controller_type, crate::VmbusStorageType::Nvme))
+            .flat_map(|c| c.drives.values())
+            .filter_map(|drive| match &drive.disk {
+                Some(Disk::Persistent(path)) => Some(path),
+                _ => None,
+            })
+        {
+            acl_read_for_vm(path, Some(*vm.vmid())).context("failed to set ACL for nvme VHD")?;
+        }
+
         let serial_pipe_path = vm.get_vm_com_port_path(1);
         let serial_log_file = log_source.log_file("guest")?;
         log_tasks.push(driver.spawn(

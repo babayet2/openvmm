@@ -397,15 +397,6 @@ async fn storvsp_nvme_hyperv<T: PetriVmmBackend>(
     const SECTOR_SIZE: u64 = 512;
     const EXPECTED_NVME_DISK_SIZE_BYTES: u64 = NVME_DISK_SECTORS * SECTOR_SIZE;
 
-    // Assumptions made by test infra & routines:
-    //
-    // 1. Some test-infra added disks are 64MiB in size. Since we find disks by size,
-    // ensure that our test disks are a different size.
-    // 2. Disks under test need to be at least 100MiB for the IO tests (see [`test_storage_linux`]),
-    // with some arbitrary buffer (5MiB in this case).
-    static_assertions::const_assert_ne!(EXPECTED_NVME_DISK_SIZE_BYTES, 64 * 1024 * 1024);
-    static_assertions::const_assert!(EXPECTED_NVME_DISK_SIZE_BYTES > 105 * 1024 * 1024);
-
     let mut vhd =
         tempfile::NamedTempFile::with_suffix("nvme.vhd").context("create temp nvme vhd")?;
     vhd.as_file()

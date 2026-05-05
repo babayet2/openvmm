@@ -402,17 +402,17 @@ impl PetriVmmBackend for HyperVPetriBackend {
         }
 
         // Grant the VM access to NVMe VHDs
-        for path in config
+        for controller in config
             .vmbus_storage_controllers
             .values()
             .filter(|c| matches!(c.controller_type, crate::VmbusStorageType::Nvme))
-            .flat_map(|c| c.drives.values())
-            .filter_map(|drive| match &drive.disk {
-                Some(Disk::Persistent(path)) => Some(path),
-                _ => None,
-            })
         {
-            acl_for_vm(path, Some(*vm.vmid()), true).context("failed to set ACL for nvme VHD")?;
+            for drive in controller.drives.values() {
+                if let Some(path) = petri_disk_to_hyperv(drive.disk.as_ref(), &temp_dir).await? {
+                    acl_for_vm(&path, Some(*vm.vmid()), true)
+                        .context("failed to set ACL for nvme VHD")?;
+                }
+            }
         }
 
         let serial_pipe_path = vm.get_vm_com_port_path(1);

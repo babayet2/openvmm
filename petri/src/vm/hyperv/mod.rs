@@ -372,7 +372,7 @@ impl PetriVmmBackend for HyperVPetriBackend {
             let local_path = igvm_file.as_ref().unwrap();
             fs_err::copy(config.firmware.openhcl_firmware().unwrap(), local_path)
                 .context("failed to copy igvm file")?;
-            acl_read_for_vm(local_path, Some(*vm.vmid()))
+            acl_for_vm(local_path, Some(*vm.vmid()), false)
                 .context("failed to set ACL for igvm file")?;
 
             let openhcl_log_file = log_source.log_file("openhcl")?;
@@ -412,7 +412,7 @@ impl PetriVmmBackend for HyperVPetriBackend {
                 _ => None,
             })
         {
-            acl_full_for_vm(path, Some(*vm.vmid())).context("failed to set ACL for nvme VHD")?;
+            acl_for_vm(path, Some(*vm.vmid()), true).context("failed to set ACL for nvme VHD")?;
         }
 
         let serial_pipe_path = vm.get_vm_com_port_path(1);
@@ -602,36 +602,15 @@ impl PetriVmRuntime for HyperVPetriRuntime {
     }
 }
 
-fn acl_read_for_vm(path: &Path, id: Option<Guid>) -> anyhow::Result<()> {
+fn acl_for_vm(path: &Path, id: Option<Guid>, write: bool) -> anyhow::Result<()> {
     let sid_arg = format!(
-        "NT VIRTUAL MACHINE\\{name}:R",
+        "NT VIRTUAL MACHINE\\{name}:{perm}",
         name = if let Some(id) = id {
             format!("{id:X}")
         } else {
             "Virtual Machines".to_string()
-        }
-    );
-    let output = std::process::Command::new("icacls.exe")
-        .arg(path)
-        .arg("/grant")
-        .arg(sid_arg)
-        .output()
-        .context("failed to run icacls")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("icacls failed: {stderr}");
-    }
-    Ok(())
-}
-
-fn acl_full_for_vm(path: &Path, id: Option<Guid>) -> anyhow::Result<()> {
-    let sid_arg = format!(
-        "NT VIRTUAL MACHINE\\{name}:F",
-        name = if let Some(id) = id {
-            format!("{id:X}")
-        } else {
-            "Virtual Machines".to_string()
-        }
+        },
+        perm = if write { 'M' } else { 'R' }
     );
     let output = std::process::Command::new("icacls.exe")
         .arg(path)

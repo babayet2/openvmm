@@ -296,6 +296,13 @@ impl PetriVmmBackend for HyperVPetriBackend {
             }
         }
 
+        let nvme_disk_paths: Vec<PathBuf> = storage_controllers
+            .values()
+            .filter(|c| matches!(c.controller_type, powershell::HyperVVmbusStorageType::Nvme))
+            .flat_map(|c| c.drives.values())
+            .filter_map(|drive| drive.disk.clone())
+            .collect();
+
         // Attempt to enable COM3 and use that to get KMSG logs, otherwise
         // fall back to use diag_client.
         let supports_com3 = {
@@ -402,17 +409,8 @@ impl PetriVmmBackend for HyperVPetriBackend {
         }
 
         // Grant the VM access to NVMe VHDs
-        for controller in config
-            .vmbus_storage_controllers
-            .values()
-            .filter(|c| matches!(c.controller_type, crate::VmbusStorageType::Nvme))
-        {
-            for drive in controller.drives.values() {
-                if let Some(path) = petri_disk_to_hyperv(drive.disk.as_ref(), &temp_dir).await? {
-                    acl_for_vm(&path, Some(*vm.vmid()), true)
-                        .context("failed to set ACL for nvme VHD")?;
-                }
-            }
+        for path in &nvme_disk_paths {
+            acl_for_vm(path, Some(*vm.vmid()), true).context("failed to set ACL for nvme VHD")?;
         }
 
         let serial_pipe_path = vm.get_vm_com_port_path(1);

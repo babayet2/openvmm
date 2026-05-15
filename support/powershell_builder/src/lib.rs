@@ -21,7 +21,7 @@ pub struct PowerShellBuilder(Command);
 impl PowerShellBuilder {
     /// Create a new PowerShell command
     pub fn new() -> Self {
-        PowerShellCmdletBuilder(Command::new("pwsh.exe"))
+        PowerShellCmdletBuilder(Command::new("C:\\PROGRA~1\\PowerShell\\7\\pwsh.exe"))
             .flag("NoProfile")
             .finish()
     }

@@ -13,6 +13,7 @@ use crate::PAGE_SIZE64;
 use crate::ROOT_PORT_DEVICE_ID;
 use crate::VENDOR_ID;
 use crate::port::PcieDownstreamPort;
+use crate::port::PciePortSettings;
 use chipset_device::ChipsetDevice;
 use chipset_device::io::IoError;
 use chipset_device::io::IoResult;
@@ -66,6 +67,8 @@ pub struct GenericPcieRootPortDefinition {
     pub name: Arc<str>,
     /// Whether hotplug is enabled for this root port.
     pub hotplug: bool,
+    /// Express-level port settings (ACS, etc.).
+    pub settings: PciePortSettings,
 }
 
 /// A flat description of a PCIe switch without hierarchy.
@@ -78,6 +81,8 @@ pub struct GenericSwitchDefinition {
     pub parent_port: Arc<str>,
     /// Whether hotplug is enabled for this switch.
     pub hotplug: bool,
+    /// Express-level settings for downstream switch ports.
+    pub dsp_settings: PciePortSettings,
 }
 
 impl GenericSwitchDefinition {
@@ -87,12 +92,14 @@ impl GenericSwitchDefinition {
         num_downstream_ports: u8,
         parent_port: impl Into<Arc<str>>,
         hotplug: bool,
+        dsp_settings: PciePortSettings,
     ) -> Self {
         Self {
             name: name.into(),
             num_downstream_ports,
             parent_port: parent_port.into(),
             hotplug,
+            dsp_settings,
         }
     }
 }
@@ -143,6 +150,7 @@ impl GenericPcieRootComplex {
                     definition.name.clone(),
                     hotplug_slot_number,
                     &port_msi_target,
+                    definition.settings,
                 );
                 (device_number, (definition.name, root_port))
             })
@@ -430,10 +438,12 @@ impl RootPort {
     /// * `name` - The name for this root port
     /// * `hotplug_slot_number` - The slot number for hotplug support. `Some(slot_number)` enables hotplug, `None` disables it
     /// * `msi_target` - MSI target for interrupt delivery
+    /// * `settings` - Express-level port settings (ACS, etc.)
     pub fn new(
         name: impl Into<Arc<str>>,
         hotplug_slot_number: Option<u32>,
         msi_target: &MsiTarget,
+        settings: PciePortSettings,
     ) -> Self {
         let name_str = name.into();
         let hardware_ids = HardwareIds {
@@ -454,6 +464,7 @@ impl RootPort {
             false,
             hotplug_slot_number,
             msi_target,
+            settings,
         );
 
         Self { port }
@@ -651,6 +662,7 @@ mod tests {
             .map(|i| GenericPcieRootPortDefinition {
                 name: format!("test-port-{}", i).into(),
                 hotplug: false,
+                settings: PciePortSettings::default(),
             })
             .collect();
 
@@ -915,7 +927,12 @@ mod tests {
         // Test with hotplug disabled (None)
         let root_port_no_hotplug = {
             let c = pci_core::msi::MsiConnection::new(AssignedBusRange::new(), 0);
-            RootPort::new("test-port-no-hotplug", None, c.target())
+            RootPort::new(
+                "test-port-no-hotplug",
+                None,
+                c.target(),
+                PciePortSettings::default(),
+            )
         };
         // We can't easily verify hotplug is disabled without accessing internal state,
         // but we can verify the port was created successfully
@@ -931,7 +948,12 @@ mod tests {
         // Test with hotplug enabled (Some(slot_number))
         let root_port_with_hotplug = {
             let c = pci_core::msi::MsiConnection::new(AssignedBusRange::new(), 0);
-            RootPort::new("test-port-hotplug", Some(5), c.target())
+            RootPort::new(
+                "test-port-hotplug",
+                Some(5),
+                c.target(),
+                PciePortSettings::default(),
+            )
         };
         let mut vendor_device_id_hotplug: u32 = 0;
         root_port_with_hotplug
@@ -948,7 +970,7 @@ mod tests {
     fn test_root_port_invalid_bus_range_handling() {
         let mut root_port = {
             let c = pci_core::msi::MsiConnection::new(AssignedBusRange::new(), 0);
-            RootPort::new("test-port", None, c.target())
+            RootPort::new("test-port", None, c.target(), PciePortSettings::default())
         };
 
         // Don't configure bus numbers, so the range should be 0..=0 (invalid)

@@ -84,6 +84,9 @@ pub struct NvmeDriver<D: DeviceBacking> {
     /// Keeps the controller connected (CC.EN==1) while servicing.
     nvme_keepalive: bool,
     bounce_buffer: bool,
+    /// When true, all IO queues are pre-created at init and no commands are
+    /// issued on the admin submission queue after initialization completes.
+    fused_keepalive_device: bool,
 }
 
 /// A container that can hold either a weak or strong reference to a value.
@@ -158,7 +161,7 @@ struct WorkerState {
     max_io_queues: u16,
     qsize: u16,
     #[inspect(skip)]
-    async_event_task: Task<()>,
+    async_event_task: Option<Task<()>>,
 }
 
 /// An error restoring from saved state.
@@ -271,11 +274,18 @@ impl<D: DeviceBacking> NvmeDriver<D> {
         cpu_count: u32,
         device: D,
         bounce_buffer: bool,
+        fused_keepalive_device: bool,
     ) -> anyhow::Result<Self> {
         let pci_id = device.id().to_owned();
-        let mut this = Self::new_disabled(driver_source, cpu_count, device, bounce_buffer)
-            .instrument(tracing::info_span!("nvme_new_disabled", pci_id))
-            .await?;
+        let mut this = Self::new_disabled(
+            driver_source,
+            cpu_count,
+            device,
+            bounce_buffer,
+            fused_keepalive_device,
+        )
+        .instrument(tracing::info_span!("nvme_new_disabled", pci_id))
+        .await?;
         match this
             .enable(cpu_count as u16)
             .instrument(tracing::info_span!("nvme_enable", pci_id))
@@ -300,6 +310,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
         cpu_count: u32,
         mut device: D,
         bounce_buffer: bool,
+        fused_keepalive_device: bool,
     ) -> anyhow::Result<Self> {
         let driver = driver_source.simple();
         let bar0 = Bar0(
@@ -361,6 +372,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             namespaces: Default::default(),
             nvme_keepalive: false,
             bounce_buffer,
+            fused_keepalive_device,
         })
     }
 
@@ -544,18 +556,24 @@ impl<D: DeviceBacking> NvmeDriver<D> {
         };
 
         // Spawn a task to handle asynchronous events.
-        let async_event_task = self.driver.spawn("nvme_async_event", {
-            let admin = admin.issuer().clone();
-            let rescan_notifiers = self.rescan_notifiers.clone();
-            async move {
-                if let Err(err) = handle_asynchronous_events(&admin, rescan_notifiers).await {
-                    tracing::error!(
-                        error = err.as_ref() as &dyn std::error::Error,
-                        "asynchronous event failure, not processing any more"
-                    );
+        // When fused_keepalive_device is set, no commands are issued on the admin queue after init.
+        let async_event_task = if !self.fused_keepalive_device {
+            Some(self.driver.spawn("nvme_async_event", {
+                let admin = admin.issuer().clone();
+                let rescan_notifiers = self.rescan_notifiers.clone();
+                async move {
+                    if let Err(err) = handle_asynchronous_events(&admin, rescan_notifiers).await {
+                        tracing::error!(
+                            error = err.as_ref() as &dyn std::error::Error,
+                            "asynchronous event failure, not processing any more"
+                        );
+                    }
                 }
-            }
-        });
+            }))
+        } else {
+            tracing::info!("fused keepalive device mode: skipping async event handler");
+            None
+        };
 
         let mut state = WorkerState {
             qsize,
@@ -565,14 +583,30 @@ impl<D: DeviceBacking> NvmeDriver<D> {
 
         self.admin = Some(admin.issuer().clone());
 
-        // Pre-create the IO queue 1 for CPU 0. The other queues will be created
-        // lazily. Numbering for I/O queues starts with 1 (0 is Admin).
-        let issuer = worker
-            .create_io_queue(&mut state, 0)
-            .await
-            .context("failed to create io queue 1")?;
+        if self.fused_keepalive_device {
+            // Pre-create IO queues for all CPUs.
+            for cpu in 0..max_io_queues.min(self.io_issuers.per_cpu.len() as u16) {
+                let issuer = worker
+                    .create_io_queue(&mut state, cpu as u32)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to create io queue for cpu {} (fused keepalive device mode)",
+                            cpu
+                        )
+                    })?;
+                self.io_issuers.per_cpu[cpu as usize].set(issuer).unwrap();
+            }
+        } else {
+            // Pre-create the IO queue 1 for CPU 0. The other queues will be created
+            // lazily. Numbering for I/O queues starts with 1 (0 is Admin).
+            let issuer = worker
+                .create_io_queue(&mut state, 0)
+                .await
+                .context("failed to create io queue 1")?;
 
-        self.io_issuers.per_cpu[0].set(issuer).unwrap();
+            self.io_issuers.per_cpu[0].set(issuer).unwrap();
+        }
         task.insert(&self.driver, "nvme_worker", state);
         task.start();
         Ok(())
@@ -599,7 +633,9 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             task.stop().await;
             let (worker, state) = task.into_inner();
             if let Some(state) = state {
-                state.async_event_task.cancel().await;
+                if let Some(aen_task) = state.async_event_task {
+                    aen_task.cancel().await;
+                }
             }
             // Hold onto responses until the reset completes so that waiting IOs do
             // not think the memory is unaliased by the device.
@@ -750,6 +786,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
         mut device: D,
         saved_state: &NvmeDriverSavedState,
         bounce_buffer: bool,
+        fused_keepalive_device: bool,
     ) -> anyhow::Result<Self> {
         let pci_id = device.id().to_owned();
         let driver = driver_source.simple();
@@ -806,6 +843,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             namespaces: Default::default(),
             nvme_keepalive: true,
             bounce_buffer,
+            fused_keepalive_device,
         };
 
         let task = &mut this.task.as_mut().unwrap();
@@ -884,21 +922,27 @@ impl<D: DeviceBacking> NvmeDriver<D> {
         }
 
         // Spawn a task to handle asynchronous events.
-        let async_event_task = this.driver.spawn("nvme_async_event", {
-            let admin = admin.issuer().clone();
-            let rescan_notifiers = this.rescan_notifiers.clone();
-            async move {
-                if let Err(err) = handle_asynchronous_events(&admin, rescan_notifiers)
-                    .instrument(tracing::info_span!("async_event_handler"))
-                    .await
-                {
-                    tracing::error!(
-                        error = err.as_ref() as &dyn std::error::Error,
-                        "asynchronous event failure, not processing any more"
-                    );
+        // When fused_keepalive_device is set, no commands are issued on the admin queue after init.
+        let async_event_task = if !fused_keepalive_device {
+            Some(this.driver.spawn("nvme_async_event", {
+                let admin = admin.issuer().clone();
+                let rescan_notifiers = this.rescan_notifiers.clone();
+                async move {
+                    if let Err(err) = handle_asynchronous_events(&admin, rescan_notifiers)
+                        .instrument(tracing::info_span!("async_event_handler"))
+                        .await
+                    {
+                        tracing::error!(
+                            error = err.as_ref() as &dyn std::error::Error,
+                            "asynchronous event failure, not processing any more"
+                        );
+                    }
                 }
-            }
-        });
+            }))
+        } else {
+            tracing::info!("fused keepalive device mode: skipping async event handler on restore");
+            None
+        };
 
         let state = WorkerState {
             qsize: saved_state.worker_data.qsize,

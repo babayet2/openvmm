@@ -994,6 +994,9 @@ pub struct AdminAerHandler {
     await_aen_cid: Option<u16>,
     send_aen: Option<Rpc<(), Result<AsynchronousEventRequestDw0, RequestError>>>, // Channel to return AENs on.
     failed_status: Option<spec::Status>, // If the failed state is reached, it will stop looping until save/restore.
+    /// When true, no AER commands will be issued. Used for fused keepalive
+    /// devices where admin commands must never be issued after initialization.
+    disabled: bool,
 }
 
 impl AdminAerHandler {
@@ -1003,6 +1006,19 @@ impl AdminAerHandler {
             await_aen_cid: None,
             send_aen: None,
             failed_status: None,
+            disabled: false,
+        }
+    }
+
+    /// Creates a handler that never issues AER commands. Used for fused
+    /// keepalive devices where the admin queue must remain idle after init.
+    pub fn new_disabled() -> Self {
+        Self {
+            last_aen: None,
+            await_aen_cid: None,
+            send_aen: None,
+            failed_status: None,
+            disabled: true,
         }
     }
 }
@@ -1049,7 +1065,7 @@ impl AerHandler for AdminAerHandler {
     }
 
     fn poll_send_aer(&self) -> bool {
-        self.await_aen_cid.is_none() && self.failed_status.is_none()
+        !self.disabled && self.await_aen_cid.is_none() && self.failed_status.is_none()
     }
 
     fn update_awaiting_cid(&mut self, cid: u16) {

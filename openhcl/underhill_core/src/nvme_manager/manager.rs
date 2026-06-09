@@ -5,6 +5,7 @@ use crate::nvme_manager::CreateNvmeDriver;
 use crate::nvme_manager::device::NvmeDriverManager;
 use crate::nvme_manager::device::NvmeDriverManagerClient;
 use crate::nvme_manager::device::NvmeDriverShutdownOptions;
+use crate::nvme_manager::is_nvme_fused_keepalive_device;
 use crate::nvme_manager::save_restore::NvmeManagerSavedState;
 use crate::nvme_manager::save_restore::NvmeSavedDiskConfig;
 use crate::servicing::NvmeSavedState;
@@ -338,6 +339,7 @@ impl NvmeManagerWorker {
         // Note: `client` exists outside of the devices write lock. This is safe:
         // the mesh client will fail appropriately if shutdown comes in between inserting
         // this entry and the call to `load_driver()`.
+        let fused_keepalive_device = is_nvme_fused_keepalive_device(&pci_id);
         let client = {
             let mut guard = context.devices.write();
 
@@ -360,6 +362,7 @@ impl NvmeManagerWorker {
                             &pci_id,
                             context.vp_count,
                             context.save_restore_supported,
+                            fused_keepalive_device,
                             None, // No device yet,
                             context.nvme_driver_spawner.clone(),
                         )?;
@@ -449,6 +452,8 @@ impl NvmeManagerWorker {
 
         for disk in &saved_state.nvme_disks {
             let pci_id = disk.pci_id.clone();
+            let fused_keepalive_device = is_nvme_fused_keepalive_device(&pci_id);
+
             let nvme_driver = self
                 .context
                 .nvme_driver_spawner
@@ -457,6 +462,7 @@ impl NvmeManagerWorker {
                     &pci_id,
                     saved_state.cpu_count,
                     save_restore_supported,
+                    fused_keepalive_device,
                     Some(&disk.driver_state),
                 )
                 .await?;
@@ -468,6 +474,7 @@ impl NvmeManagerWorker {
                     &pci_id,
                     self.context.vp_count,
                     true, // save_restore_supported is always `true` when restoring.
+                    fused_keepalive_device,
                     Some(nvme_driver),
                     self.context.nvme_driver_spawner.clone(),
                 )?,
@@ -748,6 +755,7 @@ mod tests {
             pci_id: &str,
             _vp_count: u32,
             _save_restore_supported: bool,
+            _fused_keepalive_device: bool,
             _saved_state: Option<&NvmeDriverSavedState>,
         ) -> Result<Box<dyn NvmeDevice>, NvmeSpawnerError> {
             if self.fail_create.load(Ordering::SeqCst) {

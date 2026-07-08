@@ -623,12 +623,6 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     // Mark remaining queues as unmapped — they'll be claimed lazily.
                     let io_queue = worker.io.last_mut().unwrap();
                     io_queue.unmapped = true;
-                    // `issuer` is just an `Arc<Issuer>` clone; the owning queue pair
-                    // is kept alive in `worker.io`. `Issuer` has no `Drop` side
-                    // effects, so dropping this handle here does not tear down the
-                    // queue. A fresh handle is cloned from the queue pair when the
-                    // queue is later claimed by its owning CPU in `create_io_issuer`.
-                    drop(issuer);
                 }
             }
         } else {

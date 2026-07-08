@@ -601,6 +601,11 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             // Pre-create IO queues for all CPUs, all targeting CPU 0 initially.
             // Interrupts will be lazily re-mapped when a CPU first does IO.
             let num_queues = max_io_queues.min(self.io_issuers.per_cpu.len() as u16);
+            tracing::info!(
+                num_queues,
+                pci_id = ?self.device_id,
+                "fused keepalive device mode: eagerly pre-creating all io queues"
+            );
             for i in 0..num_queues {
                 let issuer = worker
                     .create_io_queue(&mut state, 0)
@@ -618,11 +623,21 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     // Mark remaining queues as unmapped — they'll be claimed lazily.
                     let io_queue = worker.io.last_mut().unwrap();
                     io_queue.unmapped = true;
+                    // `issuer` is just an `Arc<Issuer>` clone; the owning queue pair
+                    // is kept alive in `worker.io`. `Issuer` has no `Drop` side
+                    // effects, so dropping this handle here does not tear down the
+                    // queue. A fresh handle is cloned from the queue pair when the
+                    // queue is later claimed by its owning CPU in `create_io_issuer`.
+                    drop(issuer);
                 }
             }
         } else {
             // Pre-create the IO queue 1 for CPU 0. The other queues will be created
             // lazily. Numbering for I/O queues starts with 1 (0 is Admin).
+            tracing::info!(
+                pci_id = ?self.device_id,
+                "pre-creating io queue 1 for cpu 0; remaining queues created lazily"
+            );
             let issuer = worker
                 .create_io_queue(&mut state, 0)
                 .await

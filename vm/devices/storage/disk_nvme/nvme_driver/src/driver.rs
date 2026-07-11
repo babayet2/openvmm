@@ -613,7 +613,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     .with_context(|| {
                         format!(
                             "failed to create io queue {} (fused keepalive device mode)",
-                            i
+                            i + 1
                         )
                     })?;
                 if i == 0 {
@@ -1502,6 +1502,15 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
         Ok(())
     }
 
+    fn fallback_io_issuer(&self, cpu: u32) -> (usize, IoIssuer) {
+        self.io_issuers.per_cpu[..cpu as usize]
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, issuer)| issuer.get().map(|issuer| (i, issuer.clone())))
+            .expect("there must be at least one io issuer for cpu 0")
+    }
+
     async fn create_io_issuer(&mut self, state: &mut WorkerState, cpu: u32) {
         tracing::debug!(cpu, pci_id = ?self.device.id(), "issuer request");
         if self.io_issuers.per_cpu[cpu as usize].get().is_some() {
@@ -1510,8 +1519,8 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
 
         // In fused keepalive device mode, claim an unmapped queue from the pool
         // and re-target its interrupt to the requesting CPU.
-        if let Some(io_queue) = self.io.iter_mut().find(|q| q.unmapped) {
-            let iv = io_queue.iv;
+        if let Some(idx) = self.io.iter().position(|q| q.unmapped) {
+            let iv = self.io[idx].iv;
             tracing::debug!(
                 cpu,
                 iv,
@@ -1520,6 +1529,7 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
             );
             match self.device.map_interrupt(iv.into(), cpu) {
                 Ok(_interrupt) => {
+                    let io_queue = &mut self.io[idx];
                     io_queue.cpu = cpu;
                     io_queue.unmapped = false;
                     let issuer = IoIssuer {
@@ -1528,20 +1538,24 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
                     };
                     self.io_issuers.per_cpu[cpu as usize]
                         .set(issuer)
-                        .ok()
-                        .unwrap();
-                    return;
+                        .expect("issuer already set for this cpu");
                 }
                 Err(err) => {
+                    let (fallback_cpu, fallback) = self.fallback_io_issuer(cpu);
                     tracing::error!(
                         cpu,
                         iv,
+                        fallback_cpu,
                         pci_id = ?self.device.id(),
-                        error = ?err,
-                        "fused mode: failed to remap interrupt, falling back"
+                        error = err.as_ref() as &dyn std::error::Error,
+                        "fused mode: failed to re-target interrupt, sharing an existing issuer"
                     );
+                    self.io_issuers.per_cpu[cpu as usize]
+                        .set(fallback)
+                        .expect("issuer already set for this cpu");
                 }
             }
+            return;
         }
 
         if let Some(proto) = self.proto_io.remove(&cpu) {
@@ -1574,12 +1588,7 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
             Ok(issuer) => issuer,
             Err(err) => {
                 // Find a fallback queue close in index to the failed queue.
-                let (fallback_cpu, fallback) = self.io_issuers.per_cpu[..cpu as usize]
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find_map(|(i, issuer)| issuer.get().map(|issuer| (i, issuer)))
-                    .expect("unable to find an io issuer for fallback");
+                let (fallback_cpu, fallback) = self.fallback_io_issuer(cpu);
 
                 // Log the error as informational only when there is a lack of
                 // hardware resources from the device.
@@ -1604,14 +1613,13 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
                     }
                 }
 
-                fallback.clone()
+                fallback
             }
         };
 
         self.io_issuers.per_cpu[cpu as usize]
             .set(issuer)
-            .ok()
-            .unwrap();
+            .expect("issuer already set for this cpu");
 
         // Lazily clear the drain-after-restore builder once draining is done,
         // to free the shared Arc resources.
@@ -2020,8 +2028,7 @@ pub mod save_restore {
         #[mesh(3)]
         pub queue_data: QueuePairSavedState,
         #[mesh(4)]
-        /// When `true`, interrupt has not been affinitized to a real CPU yet.
-        /// Defaults to `false` for backwards compatibility with older versions.
+        /// When `true`, the queue has not yet been affinitized to its cpu.
         pub unmapped: bool,
     }
 

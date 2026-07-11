@@ -509,7 +509,7 @@ struct NvmeDriverManagerWorker {
     /// Whether the running environment (specifically the VTL2 memory layout) allows save/restore.
     save_restore_supported: bool,
     /// WORKAROUND: a subset of devices require "fused keepalive". This flag signals to the NVMe
-    /// driver that this devices' admin queues may be unusable after a servicing event
+    /// driver that this device's admin queues may be unusable after a servicing event
     fused_keepalive_device: bool,
     #[inspect(skip)]
     nvme_driver_spawner: Arc<dyn CreateNvmeDriver>,

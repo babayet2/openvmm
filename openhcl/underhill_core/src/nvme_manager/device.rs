@@ -304,7 +304,11 @@ impl VfioNvmeDriverSpawner {
             is_isolated,
             fused_keepalive_device,
         )
-        .instrument(tracing::info_span!("nvme_driver_new", pci_id))
+        .instrument(tracing::info_span!(
+            "nvme_driver_new",
+            pci_id,
+            fused_keepalive_device
+        ))
         .await
         .map_err(NvmeSpawnerError::DeviceInitFailed)
     }

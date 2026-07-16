@@ -131,9 +131,9 @@ pub(crate) fn is_nvme_fused_keepalive_device(pci_id: &str) -> bool {
             tracing::warn!(
                 pci_id = %pci_id,
                 error = err.as_ref() as &dyn std::error::Error,
-                "failed to read PCI vendor/device IDs; treating device as not a fused keepalive device"
+                "failed to read PCI vendor/device IDs; treating device as a fused keepalive device"
             );
-            false
+            true
         }
     }
 }

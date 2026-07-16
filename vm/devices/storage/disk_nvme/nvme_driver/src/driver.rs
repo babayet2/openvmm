@@ -612,8 +612,9 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     .await
                     .with_context(|| {
                         format!(
-                            "failed to create io queue {} (fused keepalive device mode)",
-                            i + 1
+                            "failed to create io queue {} for fused keepalive device {}",
+                            i + 1,
+                            self.device_id
                         )
                     })?;
                 if i == 0 {
@@ -938,6 +939,20 @@ impl<D: DeviceBacking> NvmeDriver<D> {
         // phantom completions written by the device during the keepalive window.
         if let Some(diag) = admin.issuer().request_diagnostic_dump().await {
             if diag.peek_phase_match {
+                if fused_keepalive_device {
+                    panic!(
+                        "admin CQ has a completion at head after restore for fused \
+                         keepalive device {pci_id}: phantom completion from keepalive \
+                         window (cq_head={}, expected_phase={}, peek_cid={}, peek_sqid={}, \
+                         peek_status={:#x}, pending_count={})",
+                        diag.head,
+                        diag.expected_phase,
+                        diag.peek_cid,
+                        diag.peek_sqid,
+                        diag.peek_status_raw,
+                        diag.pending_count,
+                    );
+                }
                 tracing::warn!(
                     ?pci_id,
                     cq_head = diag.head,
@@ -1496,7 +1511,9 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
 
         self.io_issuers.per_cpu[cpu as usize]
             .set(issuer)
-            .expect("issuer already set for this cpu");
+            .unwrap_or_else(|_| {
+                panic!("io issuer for device {pci_id} on cpu {cpu} was already set")
+            });
         self.io.push(queue);
 
         Ok(())
@@ -1508,7 +1525,13 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
             .enumerate()
             .rev()
             .find_map(|(i, issuer)| issuer.get().map(|issuer| (i, issuer.clone())))
-            .expect("there must be at least one io issuer for cpu 0")
+            .unwrap_or_else(|| {
+                panic!(
+                    "io issuer for device {:?} on cpu {} failed to fallback. there must be at least one io issuer for cpu 0",
+                    self.device.id(),
+                    cpu
+                )
+            })
     }
 
     async fn create_io_issuer(&mut self, state: &mut WorkerState, cpu: u32) {
@@ -1538,7 +1561,13 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
                     };
                     self.io_issuers.per_cpu[cpu as usize]
                         .set(issuer)
-                        .expect("issuer already set for this cpu");
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "io issuer for device {:?} on cpu {} was already set",
+                                self.device.id(),
+                                cpu
+                            )
+                        });
                 }
                 Err(err) => {
                     let (fallback_cpu, fallback) = self.fallback_io_issuer(cpu);
@@ -1552,7 +1581,13 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
                     );
                     self.io_issuers.per_cpu[cpu as usize]
                         .set(fallback)
-                        .expect("issuer already set for this cpu");
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "io issuer for device {:?} on cpu {} was already set",
+                                self.device.id(),
+                                cpu
+                            )
+                        });
                 }
             }
             return;
@@ -1619,7 +1654,13 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
 
         self.io_issuers.per_cpu[cpu as usize]
             .set(issuer)
-            .expect("issuer already set for this cpu");
+            .unwrap_or_else(|_| {
+                panic!(
+                    "io issuer for device {:?} on cpu {} was already set",
+                    self.device.id(),
+                    cpu
+                )
+            });
 
         // Lazily clear the drain-after-restore builder once draining is done,
         // to free the shared Arc resources.

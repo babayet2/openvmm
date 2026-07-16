@@ -585,7 +585,6 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                 }
             }))
         } else {
-            tracing::info!("fused keepalive device mode: skipping async event handler");
             None
         };
 

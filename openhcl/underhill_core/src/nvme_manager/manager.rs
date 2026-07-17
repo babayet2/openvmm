@@ -15,6 +15,7 @@ use disk_backend::resolve::ResolveDiskParameters;
 use disk_backend::resolve::ResolvedDisk;
 use futures::StreamExt;
 use futures::future::join_all;
+use futures::future::try_join_all;
 use inspect::Inspect;
 use mesh::MeshPayload;
 use mesh::rpc::Rpc;
@@ -448,27 +449,33 @@ impl NvmeManagerWorker {
         saved_state: &NvmeManagerSavedState,
         save_restore_supported: bool,
     ) -> anyhow::Result<()> {
-        let mut restored_devices: HashMap<String, NvmeDriverManager> = HashMap::new();
-
-        for disk in &saved_state.nvme_disks {
+        let context = &self.context;
+        let created = try_join_all(saved_state.nvme_disks.iter().map(|disk| {
             let pci_id = disk.pci_id.clone();
-            let fused_keepalive_device = is_nvme_fused_keepalive_device(&pci_id);
+            async move {
+                let fused_keepalive_device = is_nvme_fused_keepalive_device(&pci_id);
 
-            let nvme_driver = self
-                .context
-                .nvme_driver_spawner
-                .create_driver(
-                    &self.context.driver_source,
-                    &pci_id,
-                    saved_state.cpu_count,
-                    save_restore_supported,
-                    fused_keepalive_device,
-                    Some(&disk.driver_state),
-                )
-                .await?;
+                let nvme_driver = context
+                    .nvme_driver_spawner
+                    .create_driver(
+                        &context.driver_source,
+                        &pci_id,
+                        saved_state.cpu_count,
+                        save_restore_supported,
+                        fused_keepalive_device,
+                        Some(&disk.driver_state),
+                    )
+                    .await?;
 
+                anyhow::Ok((pci_id, fused_keepalive_device, nvme_driver))
+            }
+        }))
+        .await?;
+
+        let mut restored_devices: HashMap<String, NvmeDriverManager> = HashMap::new();
+        for (pci_id, fused_keepalive_device, nvme_driver) in created {
             restored_devices.insert(
-                disk.pci_id.clone(),
+                pci_id.clone(),
                 NvmeDriverManager::new(
                     &self.context.driver_source,
                     &pci_id,

@@ -1966,7 +1966,7 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
             io,
             qsize: worker_state.qsize,
             max_io_queues: worker_state.max_io_queues,
-            allow_lazy_restore: Some(false), // For now, we always restore eagerly to work around device bugs.
+            allow_lazy_restore: Some(true),
         })
     }
 }

@@ -1466,12 +1466,12 @@ async fn nvme_fused_keepalive_servicing(
                 .collect()
         };
 
-    // Asserts the per-device fused/non-fused and IO-queue invariants. `phase` is
+    // Asserts exactly one fused and one non-fused device are present, returning
+    // their IO-queue `unmapped` vectors as `(fused_io, normal_io)`. `phase` is
     // used only to make failures clear about whether they occurred before or
     // after servicing.
-    let assert_devices = |devices: &[(bool, Vec<bool>)], phase: &str| {
+    let split_fused = |devices: &[(bool, Vec<bool>)], phase: &str| -> (Vec<bool>, Vec<bool>) {
         assert_eq!(devices.len(), 2, "[{phase}] expected two VTL2 NVMe devices");
-
         let (_, fused_io) = devices
             .iter()
             .find(|(fused, _)| *fused)
@@ -1480,53 +1480,55 @@ async fn nvme_fused_keepalive_servicing(
             .iter()
             .find(|(fused, _)| !*fused)
             .unwrap_or_else(|| panic!("[{phase}] expected one device in normal (non-fused) mode"));
-
-        assert_eq!(
-            fused_io.len(),
-            eager_count,
-            "[{phase}] fused keepalive device should have min(max_io_queues, vp_count) = \
-             {eager_count} IO queues, but found {}",
-            fused_io.len()
-        );
-        assert!(
-            fused_io.iter().filter(|&&unmapped| unmapped).count() >= 1,
-            "[{phase}] fused keepalive device should have eagerly pre-created unmapped IO \
-             queues, but all {} queues were mapped",
-            fused_io.len()
-        );
-
-        assert!(
-            !normal_io.is_empty(),
-            "[{phase}] the normal NVMe driver should have at least one IO queue"
-        );
-        assert_eq!(
-            normal_io.iter().filter(|&&unmapped| unmapped).count(),
-            0,
-            "[{phase}] a normal (non-fused) device must never have unmapped IO queues"
-        );
-        assert!(
-            normal_io.len() < eager_count,
-            "[{phase}] a normal device creates IO queues lazily, so it should have fewer than \
-             the fused eager count ({eager_count}), but found {}",
-            normal_io.len()
-        );
+        (fused_io.clone(), normal_io.clone())
     };
 
     let mut vm = run_vm().await?;
 
-    // Before servicing: the fused device eagerly pre-creates unmapped IO queues
-    // while the normal device creates them lazily.
-    let devices = inspect_devices(&vm).await?;
-    assert_devices(&devices, "pre-servicing");
+    // Before servicing: the fused device eagerly pre-creates its full set of
+    // unmapped IO queues while the normal device creates them lazily.
+    let (fused_io, normal_io) = split_fused(&inspect_devices(&vm).await?, "pre-servicing");
+    assert_eq!(
+        fused_io.len(),
+        eager_count,
+        "[pre-servicing] fused keepalive device should have min(max_io_queues, vp_count) = \
+         {eager_count} IO queues, but found {}",
+        fused_io.len()
+    );
+    assert!(
+        fused_io.iter().filter(|&&unmapped| unmapped).count() >= 1,
+        "[pre-servicing] fused keepalive device should have eagerly pre-created unmapped IO \
+         queues, but all {} queues were mapped",
+        fused_io.len()
+    );
+    assert!(
+        !normal_io.is_empty(),
+        "[pre-servicing] the normal NVMe driver should have at least one IO queue"
+    );
+    assert_eq!(
+        normal_io.iter().filter(|&&unmapped| unmapped).count(),
+        0,
+        "[pre-servicing] a normal (non-fused) device must never have unmapped IO queues"
+    );
+    assert!(
+        normal_io.len() < eager_count,
+        "[pre-servicing] a normal device creates IO queues lazily, so it should have fewer than \
+         the fused eager count ({eager_count}), but found {}",
+        normal_io.len()
+    );
 
     // Exercise servicing with NVMe keepalive enabled.
     vm.restart_openhcl(igvm_file, flags).await?;
 
     // After servicing: the fused flag is recomputed on the restore path, so the
     // fused device must still be fused and the normal device must still be
-    // non-fused, with IO-queue state consistent with each mode.
-    let devices = inspect_devices(&vm).await?;
-    assert_devices(&devices, "post-servicing");
+    // non-fused. The `split_fused` call fails if either determination changed.
+    let (_fused_io, normal_io) = split_fused(&inspect_devices(&vm).await?, "post-servicing");
+    assert_eq!(
+        normal_io.iter().filter(|&&unmapped| unmapped).count(),
+        0,
+        "[post-servicing] a normal (non-fused) device must never have unmapped IO queues"
+    );
 
     Ok(())
 }

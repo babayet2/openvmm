@@ -401,6 +401,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
         bounce_buffer: bool,
         aer_handler: A,
         drain_after_restore: DrainAfterRestore,
+        commands_forbidden: bool,
     ) -> anyhow::Result<Self> {
         // FUTURE: Consider splitting this into several allocations, rather than
         // allocating the sum total together. This can increase the likelihood
@@ -436,6 +437,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
             bounce_buffer,
             aer_handler,
             drain_after_restore,
+            commands_forbidden,
         )
     }
 
@@ -452,6 +454,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
         bounce_buffer: bool,
         aer_handler: A,
         drain_after_restore: DrainAfterRestore,
+        commands_forbidden: bool,
     ) -> anyhow::Result<Self> {
         // MemoryBlock is either allocated or restored prior calling here.
         let sq_mem_block = mem.subblock(0, SQ_SIZE);
@@ -510,6 +513,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
                 device_id,
                 qid,
                 drain_after_restore,
+                commands_forbidden,
             )?,
             None => {
                 // Create a new one.
@@ -522,6 +526,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
                     aer_handler,
                     device_id: device_id.into(),
                     qid,
+                    commands_forbidden,
                 }
             }
         };
@@ -639,6 +644,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
         bounce_buffer: bool,
         aer_handler: A,
         drain_after_restore: DrainAfterRestore,
+        commands_forbidden: bool,
     ) -> anyhow::Result<Self> {
         let QueuePairSavedState {
             mem_len: _,  // Used to restore DMA buffer before calling this.
@@ -662,6 +668,7 @@ impl<A: AerHandler, D: DeviceBacking> QueuePair<A, D> {
             bounce_buffer,
             aer_handler,
             drain_after_restore,
+            commands_forbidden,
         )
     }
 }
@@ -1140,6 +1147,7 @@ struct QueueHandler<A: AerHandler> {
     aer_handler: A,
     device_id: String,
     qid: u16,
+    commands_forbidden: bool,
 }
 
 #[derive(Inspect, Default)]
@@ -1249,6 +1257,12 @@ impl<A: AerHandler> QueueHandler<A> {
                 },
                 Event::Command(cmd) => match cmd {
                     Cmd::Command(rpc) => {
+                        if self.commands_forbidden {
+                            panic!(
+                                "attempted to submit a command to admin queue {} for device {} after restore; the admin queue must remain idle for fused keepalive devices",
+                                self.qid, self.device_id
+                            );
+                        }
                         let (mut command, respond) = rpc.split();
                         self.commands.insert(&mut command, respond);
                         self.sq.write(command).unwrap();
@@ -1307,6 +1321,7 @@ impl<A: AerHandler> QueueHandler<A> {
         device_id: &str,
         qid: u16,
         drain_after_restore: DrainAfterRestore,
+        commands_forbidden: bool,
     ) -> anyhow::Result<Self> {
         let QueueHandlerSavedState {
             sq_state,
@@ -1328,6 +1343,7 @@ impl<A: AerHandler> QueueHandler<A> {
             aer_handler,
             device_id: device_id.into(),
             qid,
+            commands_forbidden,
         })
     }
 }

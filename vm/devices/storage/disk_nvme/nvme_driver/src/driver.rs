@@ -242,6 +242,7 @@ impl<D: DeviceBacking> IoQueue<D> {
             bounce_buffer,
             NoOpAerHandler,
             drain_after_restore,
+            false,
         )?;
 
         Ok(Self {
@@ -422,6 +423,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             self.bounce_buffer,
             aer_handler,
             DrainAfterRestoreBuilder::new_no_drain(),
+            false,
         )
         .context("failed to create admin queue pair")?;
 
@@ -898,12 +900,20 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             .admin
             .as_ref()
             .map(|a| {
+                let pending_commands_count = a.handler_data.pending_cmds.commands.len();
                 tracing::info!(
                     id = a.qid,
-                    pending_commands_count = a.handler_data.pending_cmds.commands.len(),
+                    pending_commands_count,
                     ?pci_id,
                     "restoring admin queue",
                 );
+                if fused_keepalive_device && pending_commands_count > 0 {
+                    panic!(
+                        "fused keepalive device {pci_id} restored with a non-empty admin \
+                         queue ({pending_commands_count} pending commands); fused devices \
+                         must not issue admin commands after init"
+                    );
+                }
                 // Restore memory block for admin queue pair.
                 let mem_block = restored_memory
                     .iter()
@@ -927,6 +937,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     bounce_buffer,
                     aer_handler,
                     DrainAfterRestoreBuilder::new_no_drain(), // admin queue doesn't need draining
+                    fused_keepalive_device,
                 )
                 .expect("failed to restore admin queue pair")
             })
@@ -1527,6 +1538,7 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
             self.bounce_buffer,
             NoOpAerHandler,
             drain_after_restore,
+            false,
         )
         .map_err(|err| DeviceError::IoQueuePairCreationFailure(err, qid))?;
 

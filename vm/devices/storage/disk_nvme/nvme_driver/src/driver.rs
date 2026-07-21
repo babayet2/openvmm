@@ -242,6 +242,7 @@ impl<D: DeviceBacking> IoQueue<D> {
             bounce_buffer,
             NoOpAerHandler,
             drain_after_restore,
+            false,
         )?;
 
         Ok(Self {
@@ -422,6 +423,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             self.bounce_buffer,
             aer_handler,
             DrainAfterRestoreBuilder::new_no_drain(),
+            false,
         )
         .context("failed to create admin queue pair")?;
 
@@ -927,6 +929,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     bounce_buffer,
                     aer_handler,
                     DrainAfterRestoreBuilder::new_no_drain(), // admin queue doesn't need draining
+                    fused_keepalive_device,
                 )
                 .expect("failed to restore admin queue pair")
             })
@@ -1720,6 +1723,7 @@ impl<D: DeviceBacking> DriverWorkerTask<D> {
             self.bounce_buffer,
             NoOpAerHandler,
             drain_after_restore,
+            false,
         )
         .map_err(|err| DeviceError::IoQueuePairCreationFailure(err, qid))?;
 

@@ -900,12 +900,20 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             .admin
             .as_ref()
             .map(|a| {
+                let pending_commands_count = a.handler_data.pending_cmds.commands.len();
                 tracing::info!(
                     id = a.qid,
-                    pending_commands_count = a.handler_data.pending_cmds.commands.len(),
+                    pending_commands_count,
                     ?pci_id,
                     "restoring admin queue",
                 );
+                if fused_keepalive_device && pending_commands_count > 0 {
+                    panic!(
+                        "fused keepalive device {pci_id} restored with a non-empty admin \
+                         queue ({pending_commands_count} pending commands); fused devices \
+                         must not issue admin commands after init"
+                    );
+                }
                 // Restore memory block for admin queue pair.
                 let mem_block = restored_memory
                     .iter()

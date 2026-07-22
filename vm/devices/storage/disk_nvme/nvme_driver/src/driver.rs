@@ -1038,7 +1038,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
 
         worker.io = sorted_io
             .into_iter()
-            .flat_map(|q| -> Result<IoQueue<D>, anyhow::Error> {
+            .map(|q| -> Result<IoQueue<D>, anyhow::Error> {
                 let qid = q.queue_data.qid;
                 let cpu = q.cpu;
                 tracing::info!(qid, cpu, iv = q.iv, ?pci_id, "restoring queue");
@@ -1096,7 +1096,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                 }
                 Ok(q)
             })
-            .collect();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         // Update next_ioq_id to avoid reusing qids.
         worker.next_ioq_id = max_seen_qid + 1;

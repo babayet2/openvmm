@@ -1022,26 +1022,43 @@ impl<D: DeviceBacking> NvmeDriver<D> {
             None
         };
 
-        // Restore all IO queues eagerly. Queues are sorted by interrupt vector
-        // for ordered VPci allocation (MSI-X ordering workaround).
-        //
-        // Devnote: Safety of inline new_self_drained(): This loop is fully
-        // synchronous (no .await). Although IoQueue::restore() spawns queue
-        // handler tasks, they don't poll until the async runtime yields —
-        // which happens only after .collect() completes. So all
-        // new_self_drained() and new_draining() calls finish before any
-        // handler can fire the drain-complete signal. If this loop is ever
-        // refactored to be async, the waiters for empty queues must be
-        // pre-created.
-        let mut sorted_io: Vec<_> = saved_state.worker_data.io.iter().collect();
-        sorted_io.sort_by_key(|q| q.iv);
+        let proto_queues_count = saved_state
+            .worker_data
+            .io
+            .iter()
+            .filter(|q| {
+                q.queue_data.qid != 1 && q.queue_data.handler_data.pending_cmds.commands.is_empty()
+            })
+            .count();
 
-        worker.io = sorted_io
-            .into_iter()
+        // Precreate waiters for proto queues and for QID 1 (when empty) before
+        // creating and starting eager queues. This ensures that if all eager
+        // non-empty queues drain before we're able to create the proto queues
+        // (or before QID 1's turn in the loop), they will still receive the
+        // signal and not wait forever.
+        let drain_after_restore_for_proto_queues: Vec<_> = (0..proto_queues_count)
+            .map(|_| drain_after_restore_template.new_self_drained())
+            .collect();
+
+        let mut drain_after_restore_for_qid1 = saved_state
+            .worker_data
+            .io
+            .iter()
+            .find(|q| q.queue_data.qid == 1)
+            .filter(|q| q.queue_data.handler_data.pending_cmds.commands.is_empty())
+            .map(|_| drain_after_restore_template.new_self_drained());
+
+        worker.io = saved_state
+            .worker_data
+            .io
+            .iter()
+            .filter(|q| {
+                q.queue_data.qid == 1 || !q.queue_data.handler_data.pending_cmds.commands.is_empty()
+            })
             .map(|q| -> Result<IoQueue<D>, anyhow::Error> {
                 let qid = q.queue_data.qid;
                 let cpu = q.cpu;
-                tracing::info!(qid, cpu, iv = q.iv, ?pci_id, "restoring queue");
+                tracing::info!(qid, cpu, ?pci_id, "restoring queue");
                 max_seen_qid = max_seen_qid.max(qid);
                 let interrupt = worker.device.map_interrupt(q.iv, q.cpu).with_context(|| {
                     format!(
@@ -1067,36 +1084,59 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     q,
                     bounce_buffer,
                     if q.queue_data.handler_data.pending_cmds.commands.is_empty() {
-                        drain_after_restore_template.new_self_drained()
+                        drain_after_restore_for_qid1
+                            .take()
+                            .expect("only QID 1 should be empty in eager restore")
                     } else {
                         drain_after_restore_template.new_draining()
                     },
                 )?;
-                tracing::info!(
-                    qid,
-                    cpu,
-                    iv = q.iv,
-                    ?pci_id,
-                    "restoring queue: create issuer"
-                );
-                if !q.unmapped {
-                    let issuer = IoIssuer {
-                        issuer: q.queue.issuer().clone(),
-                        cpu: q.cpu,
-                    };
-                    this.io_issuers.per_cpu[q.cpu as usize].set(issuer).unwrap();
-                } else {
-                    tracing::info!(
-                        qid,
-                        cpu,
-                        iv = q.iv,
-                        ?pci_id,
-                        "restoring unmapped queue into lazy pool"
-                    );
-                }
+                tracing::info!(qid, cpu, ?pci_id, "restoring queue: create issuer");
+                let issuer = IoIssuer {
+                    issuer: q.queue.issuer().clone(),
+                    cpu: q.cpu,
+                };
+                this.io_issuers.per_cpu[q.cpu as usize].set(issuer).unwrap();
                 Ok(q)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
+
+        // (2) Create prototype entries for any queues that don't currently have outstanding commands.
+        // They will be restored on demand later.
+        worker.proto_io = saved_state
+            .worker_data
+            .io
+            .iter()
+            .filter(|q| {
+                q.queue_data.qid != 1 && q.queue_data.handler_data.pending_cmds.commands.is_empty()
+            })
+            .zip(drain_after_restore_for_proto_queues)
+            .map(|(q, drain_after_restore)| {
+                // Create a prototype IO queue entry.
+                tracing::info!(
+                    qid = q.queue_data.qid,
+                    cpu = q.cpu,
+                    ?pci_id,
+                    "creating prototype io queue entry",
+                );
+                max_seen_qid = max_seen_qid.max(q.queue_data.qid);
+                let mem_block = restored_memory
+                    .iter()
+                    .find(|mem| {
+                        mem.len() == q.queue_data.mem_len && q.queue_data.base_pfn == mem.pfns()[0]
+                    })
+                    .expect("unable to find restored mem block")
+                    .to_owned();
+                (
+                    q.cpu,
+                    ProtoIoQueue {
+                        save_state: q.clone(),
+                        mem: mem_block,
+                        drain_after_restore,
+                    },
+                )
+            })
+            .collect();
 
         // Update next_ioq_id to avoid reusing qids.
         worker.next_ioq_id = max_seen_qid + 1;

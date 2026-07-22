@@ -1117,7 +1117,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     q.queue_data.qid == 1
                         || !q.queue_data.handler_data.pending_cmds.commands.is_empty()
                 })
-                .flat_map(|q| -> Result<IoQueue<D>, anyhow::Error> {
+                .map(|q| -> Result<IoQueue<D>, anyhow::Error> {
                     let qid = q.queue_data.qid;
                     let cpu = q.cpu;
                     tracing::info!(qid, cpu, ?pci_id, "restoring queue");
@@ -1172,7 +1172,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     }
                     Ok(q)
                 })
-                .collect();
+                .collect::<anyhow::Result<Vec<_>>>()?;
 
             // Create prototype entries for any queues that don't currently have
             // outstanding commands. They will be restored on demand later.
@@ -1228,7 +1228,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
 
             worker.io = sorted_io
                 .into_iter()
-                .flat_map(|q| -> Result<IoQueue<D>, anyhow::Error> {
+                .map(|q| -> Result<IoQueue<D>, anyhow::Error> {
                     let qid = q.queue_data.qid;
                     let cpu = q.cpu;
                     tracing::info!(qid, cpu, iv = q.iv, ?pci_id, "restoring queue");
@@ -1288,7 +1288,7 @@ impl<D: DeviceBacking> NvmeDriver<D> {
                     }
                     Ok(q)
                 })
-                .collect();
+                .collect::<anyhow::Result<Vec<_>>>()?;
         }
 
         // Update next_ioq_id to avoid reusing qids.
